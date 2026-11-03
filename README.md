@@ -22,13 +22,6 @@ A clean, interactive terminal experience without requiring a traditional graphic
 🌐 **Tashnet**
 A private networking system designed for connecting and accessing Tash enabled devices securely through a unified network.
 
-## 🎯 Project Goals
-
-- [ ] Initial Release.
-- [ ] Fancier TUI.
-- [ ] Tash Ecosystem.
-- [ ] Support on more systems.
-
 ## 📦 Supported Platforms
 
 | Platform | Support |
