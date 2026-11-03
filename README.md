@@ -24,7 +24,10 @@ A private networking system designed for connecting and accessing Tash enabled d
 
 ## 🎯 Project Goals
 
-Tash aims to make system management more accessible, organized and convenient, whether you're running a desktop computer, a Linux server or an Android device.
+- [ ] Docker integration
+- [ ] Tailscale integration
+- [ ] Tashnet
+- [ ] Cross-platform support
 
 ## 📦 Supported Platforms
 
