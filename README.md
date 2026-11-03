@@ -24,10 +24,10 @@ A private networking system designed for connecting and accessing Tash enabled d
 
 ## 🎯 Project Goals
 
-- [ ] Docker integration
-- [ ] Tailscale integration
-- [ ] Tashnet
-- [ ] Cross-platform support
+- [ ] Initial Release.
+- [ ] Fancier TUI.
+- [ ] Tash Ecosystem.
+- [ ] Support on more systems.
 
 ## 📦 Supported Platforms
 
