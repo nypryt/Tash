@@ -82,7 +82,6 @@ opens setup. For arm64 Linux use the `linux-arm64.elf`.
 Use the `linux-arm64.elf` installer:
 
 ```sh
-pkg install xz-utils   # only if you need to unpack an archive
 chmod +x Tash-Setup-<version>-linux-arm64.elf
 ./Tash-Setup-<version>-linux-arm64.elf
 ```
