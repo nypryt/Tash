@@ -6,7 +6,7 @@ Tash is a lightweight, cross platform terminal dashboard designed to bring syste
 
 • 🪟 Windows  
 • 🐧 Linux  
-• 🍎 macOS (Intel) 
+• 🍎 macOS (Intel)  
 • 📱 Android through Termux (ARM64)
 
 ## ✨ Features
