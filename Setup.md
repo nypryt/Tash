@@ -374,22 +374,22 @@ Start with:
 tash doctor
 ```
 
-- **`tash: command not found` after installing** — open a new terminal. The
+- **`tash: command not found` after installing**: open a new terminal. The
   installer updates the user PATH, but existing shells do not see it.
-- **Main device says `secret.key` is missing** — restore the key file, or
+- **Main device says `secret.key` is missing**: restore the key file, or
   re run first time setup if you accept that clients must rejoin.
-- **A client was disconnected** — the main regenerated the secret or removed the
+- **A client was disconnected**: the main regenerated the secret or removed the
   device. Run `tash join` on the client and approve it again.
-- **Termux shows no Tailscale peers** — the unrooted CLI cannot reach the
+- **Termux shows no Tailscale peers**: the unrooted CLI cannot reach the
   daemon. Use the Tailscale Android app; Tash shows this guidance.
-- **Pi hole fails TLS** — run `tash pihole setup -insecure` for a self signed
+- **Pi hole fails TLS**: run `tash pihole setup -insecure` for a self signed
   certificate, or fix the certificate chain.
-- **Docker permission denied** — add your user to the `docker` group on Linux,
+- **Docker permission denied**: add your user to the `docker` group on Linux,
   or run Tash as a user that can access the socket. On Windows, make sure Docker
   Desktop is running.
-- **NAS port in use** — change `nas.port` in `config.json`, or stop the other
+- **NAS port in use**: change `nas.port` in `config.json`, or stop the other
   service.
-- **macOS says the installer is damaged** — the DMG is unsigned. Right click →
+- **macOS says the installer is damaged**: the DMG is unsigned. Right click →
   Open, or remove the quarantine attribute shown above.
 
 ## Documentation
