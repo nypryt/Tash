@@ -103,7 +103,7 @@ tash nas serve
 Requires Go 1.26 or newer.
 
 ```sh
-git clone https://github.com/tash/tash.git
+git clone https://github.com/nypryt/tash.git
 cd tash
 CGO_ENABLED=0 go build -trimpath -o tash ./cmd/tash
 ./tash dashboard
