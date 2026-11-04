@@ -1,12 +1,12 @@
 # ⚡ Tash
 
-Tash is a lightweight, cross-platform terminal dashboard designed to bring system management and essential services together in one place.
+Tash is a lightweight, cross platform terminal dashboard designed to bring system management and essential services together in one place.
 
 🌐 **Cross-platform support**
 
 • 🪟 Windows  
 • 🐧 Linux  
-• 🍎 macOS  
+• 🍎 macOS (Intel)
 • 📱 Android through Termux (ARM64)
 
 ## ✨ Features
