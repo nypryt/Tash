@@ -13,12 +13,16 @@ Tash is a lightweight, cross platform terminal dashboard designed to bring syste
 
 🐳 **Docker Integration**  
 Manage and interact with Docker directly through Tash.
+
 🔗 **Tailscale Integration**  
 Access and manage your Tailscale connections from one interface.
+
 💻 **Cross-platform**  
 Designed to work across desktop operating systems and ARM64 Termux environments.
+
 ⚡ **Terminal-based Interface**  
 A clean, interactive terminal experience without requiring a traditional graphical desktop.
+
 🌐 **Tashnet**
 A private networking system designed for connecting and accessing Tash enabled devices securely through a unified network.
 
