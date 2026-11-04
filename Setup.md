@@ -21,16 +21,16 @@ tash dashboard
 
 ## Features
 
-- **Tailscale** — node state, peer list, latency sparklines, and a ping loop.
-- **Pi-hole** — v6 session auth with v5 fallback: query feed, blocked counts,
+- **Tailscale**: node state, peer list, latency sparklines, and a ping loop.
+- **Pi-hole**: v6 session auth with v5 fallback: query feed, blocked counts,
   gravity updates, blocklist additions, and blocking on/off.
-- **Docker** — choose the Docker CLI or a direct Engine API connection over a
+- **Docker**: choose the Docker CLI or a direct Engine API connection over a
   Unix socket, Windows npipe, or protected TCP.
-- **NAS** — an authenticated WebDAV server with no root and no proot.
-- **Editor** — a built-in vim-style modal editor.
-- **Themes** — bundled palettes, live preview, and custom JSON themes.
-- **Tashnet** — a secret-key network where every new device needs explicit
-  approval on the main device. Main-role handover and secret regeneration are
+- **NAS**: an authenticated WebDAV server with no root and no proot.
+- **Editor**: a built in vim-style modal editor.
+- **Themes**: bundled palettes, live preview, and custom JSON themes.
+- **Tashnet**: a secret-key network where every new device needs explicit
+  approval on the main device. Main role handover and secret regeneration are
   built in.
 
 Tash runs on Windows x64/arm64, macOS Intel/Apple Silicon, Linux x64/arm64, and
