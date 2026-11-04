@@ -258,12 +258,12 @@ tash nas serve
 
 The NAS tab shows the WebDAV URL and password (`p` reveals it). Mount examples:
 
-- **Windows** — Explorer → This PC → Map network drive. Paste the DAV URL.
+- **Windows**: Explorer → This PC → Map network drive. Paste the DAV URL.
   Windows may need the WebClient service enabled.
-- **macOS** — Finder → Go → Connect to Server (`⌘K`).
-- **Linux** — GNOME Files → Other Locations → Connect to Server, or
+- **macOS**: Finder → Go → Connect to Server (`⌘K`).
+- **Linux**: GNOME Files → Other Locations → Connect to Server, or
   `mount.davfs <dav-url> /mnt/tash`.
-- **Android** — add a WebDAV storage in Material Files, Solid Explorer, or RCX.
+- **Android**: add a WebDAV storage in Material Files, Solid Explorer, or RCX.
 
 WebDAV uses Basic auth. Because Tash serves plain HTTP, use it over Tailscale or
 a trusted LAN, not the public internet. On Termux, the NAS stays reachable while
