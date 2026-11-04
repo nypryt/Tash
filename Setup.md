@@ -1,8 +1,8 @@
 # Tash
 
 **Tash** is a hackery terminal control deck for your network. One command opens
-a live dashboard for Tailscale latency, Pi-hole DNS, Docker, a WebDAV NAS, a
-vim-style editor, themes, and the **Tashnet** secret-key network.
+a live dashboard for Tailscale latency, Pi hole DNS, Docker, a WebDAV NAS, a
+vim style editor, themes, and the **Tashnet** secret key network.
 
 ```text
   ████████╗ █████╗ ███████╗██╗  ██╗
@@ -22,14 +22,14 @@ tash dashboard
 ## Features
 
 - **Tailscale**: node state, peer list, latency sparklines, and a ping loop.
-- **Pi-hole**: v6 session auth with v5 fallback: query feed, blocked counts,
+- **Pi hole**: v6 session auth with v5 fallback: query feed, blocked counts,
   gravity updates, blocklist additions, and blocking on/off.
 - **Docker**: choose the Docker CLI or a direct Engine API connection over a
   Unix socket, Windows npipe, or protected TCP.
 - **NAS**: an authenticated WebDAV server with no root and no proot.
-- **Editor**: a built in vim-style modal editor.
+- **Editor**: a built in vim style modal editor.
 - **Themes**: bundled palettes, live preview, and custom JSON themes.
-- **Tashnet**: a secret-key network where every new device needs explicit
+- **Tashnet**: a secret key network where every new device needs explicit
   approval on the main device. Main role handover and secret regeneration are
   built in.
 
@@ -38,13 +38,13 @@ unrooted Termux arm64.
 
 ## Install
 
-Every installer is terminal-based: it installs one self-contained `tash`
-binary, adds it to your user `PATH`, and immediately opens first-run setup.
+Every installer is terminal based: it installs one self contained `tash`
+binary, adds it to your user `PATH`, and immediately opens first run setup.
 
 ### Windows
 
 1. Download `Tash-Setup-<version>-windows-amd64.exe` (or `arm64`).
-2. Double-click it. A console opens.
+2. Double click it. A console opens.
 3. SmartScreen may warn about an unsigned installer: choose **More info** →
    **Run anyway**.
 4. Tash installs to `%LOCALAPPDATA%\Programs\Tash` and updates your user `PATH`.
@@ -53,9 +53,9 @@ binary, adds it to your user `PATH`, and immediately opens first-run setup.
 ### macOS
 
 1. Download the DMG for your Mac: `arm64` for Apple Silicon, `amd64` for Intel.
-2. Open the DMG and double-click **Install Tash.command**. Terminal opens.
+2. Open the DMG and double click **Install Tash.command**. Terminal opens.
 3. The installer copies `tash` to `~/.local/bin` and adds it to `PATH`.
-4. If Gatekeeper blocks the unsigned installer, right-click it and choose
+4. If Gatekeeper blocks the unsigned installer, right click it and choose
    **Open**, or run:
 
    ```sh
@@ -272,7 +272,7 @@ Termux is alive; use `termux-wake-lock`.
 
 ### Editor
 
-The EDITOR tab is a vim-style modal editor. Standalone:
+The EDITOR tab is a vim style modal editor. Standalone:
 
 ```sh
 tash edit notes.md
@@ -378,25 +378,25 @@ tash doctor
 - **`tash: command not found` after installing** — open a new terminal. The
   installer updates the user PATH, but existing shells do not see it.
 - **Main device says `secret.key` is missing** — restore the key file, or
-  re-run first-time setup if you accept that clients must rejoin.
+  re run first time setup if you accept that clients must rejoin.
 - **A client was disconnected** — the main regenerated the secret or removed the
   device. Run `tash join` on the client and approve it again.
 - **Termux shows no Tailscale peers** — the unrooted CLI cannot reach the
   daemon. Use the Tailscale Android app; Tash shows this guidance.
-- **Pi-hole fails TLS** — run `tash pihole setup -insecure` for a self-signed
+- **Pi hole fails TLS** — run `tash pihole setup -insecure` for a self signed
   certificate, or fix the certificate chain.
 - **Docker permission denied** — add your user to the `docker` group on Linux,
   or run Tash as a user that can access the socket. On Windows, make sure Docker
   Desktop is running.
 - **NAS port in use** — change `nas.port` in `config.json`, or stop the other
   service.
-- **macOS says the installer is damaged** — the DMG is unsigned. Right-click →
+- **macOS says the installer is damaged** — the DMG is unsigned. Right click →
   Open, or remove the quarantine attribute shown above.
 
 ## Documentation
 
 - [Tashnet protocol](docs/tashnet.md)
-- [Services: Pi-hole, Docker, NAS](docs/services.md)
+- [Services: Pi hole, Docker, NAS](docs/services.md)
 - [Building and releasing](docs/building.md)
 - [Architecture](docs/architecture.md)
 
