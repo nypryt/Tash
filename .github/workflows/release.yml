@@ -1,0 +1,134 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish (for example v1.0.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build Windows installers
+        shell: pwsh
+        run: ./scripts/build.ps1 -Targets "windows/amd64 windows/arm64" -SkipMacDMG -Clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build Linux installers
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh --targets "linux/amd64 linux/arm64" --skip-dmg --clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*
+          if-no-files-found: error
+
+  macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build Intel DMG
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh --targets "darwin/amd64" --clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-amd64
+          path: dist/*
+          if-no-files-found: error
+
+  macos-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build Apple Silicon DMG
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh --targets "darwin/arm64" --clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-arm64
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, linux, macos-intel, macos-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Rebuild checksums across every artifact
+        run: |
+          rm -f dist/checksums.txt
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Tash installers
+
+            | Platform | File |
+            | --- | --- |
+            | Windows x64 | `Tash-Setup-*-windows-amd64.exe` |
+            | Windows arm64 | `Tash-Setup-*-windows-arm64.exe` |
+            | Linux x64 | `Tash-Setup-*-linux-amd64.elf` |
+            | Linux arm64 / Termux | `Tash-Setup-*-linux-arm64.elf` |
+            | macOS Intel | `Tash-Setup-*-macos-amd64.dmg` |
+            | macOS Apple Silicon | `Tash-Setup-*-macos-arm64.dmg` |
+
+            Double-click the `.exe` or `.dmg`, or run the `.elf` from a terminal.
+            The installer opens a terminal, installs `tash`, and starts first-run
+            setup. Choose **Main device** for the first machine; every other
+            machine chooses **Join Tashnet** and needs approval on the main device.
+
+            The macOS builds are unsigned and not notarized. If Gatekeeper blocks
+            them, right-click the installer and choose Open. Verify downloads with
+            `checksums.txt`.

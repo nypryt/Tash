@@ -1,0 +1,22 @@
+services:
+  tash:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: tash:latest
+    container_name: tash
+    stdin_open: true
+    tty: true
+    command: ["dashboard"]
+    environment:
+      TASH_HOME: /data/tash
+    ports:
+      - "8787:8787"   # Tashnet control
+      - "8788:8788"   # WebDAV NAS
+    volumes:
+      - tash-data:/data
+      # To control the host Docker engine, use socket mode and uncomment:
+      # - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  tash-data:

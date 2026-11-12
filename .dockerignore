@@ -1,0 +1,11 @@
+.git
+.github
+bin
+dist
+.tmp*
+cmd/installer/payload/tash_payload
+*.exe
+*.elf
+*.dmg
+*.zip
+*.tar.gz

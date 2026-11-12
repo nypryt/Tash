@@ -1,0 +1,10 @@
+bin/
+dist/
+TEMP/
+.tmp*
+cmd/installer/payload/tash_payload
+*.exe
+*.elf
+*.dmg
+*.test
+coverage.out
