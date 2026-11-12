@@ -75,6 +75,41 @@ func TestClientDashboardTabsRender(t *testing.T) {
 	}
 }
 
+func TestTabOrderAndDeckLayout(t *testing.T) {
+	cfg := config.Default()
+	cfg.UI.TabOrder = []string{"settings", "claude", "deck", "tailscale", "pihole", "docker", "tashnet", "nas", "editor"}
+	m := &Model{cfg: cfg}
+
+	order := m.tabOrderDefs()
+	if len(order) != len(tabDefs) {
+		t.Fatalf("order has %d tabs, want %d", len(order), len(tabDefs))
+	}
+	if order[0].ID != "settings" || order[1].ID != "claude" {
+		t.Fatalf("custom order not honored: %s, %s", order[0].ID, order[1].ID)
+	}
+
+	m.moveTab(0, 1)
+	order = m.tabOrderDefs()
+	if order[0].ID != "claude" || order[1].ID != "settings" {
+		t.Fatalf("moveTab did not swap: %s, %s", order[0].ID, order[1].ID)
+	}
+
+	m.cfg.UI.HiddenTabs = []string{"claude", "nas"}
+	visible := m.visibleTabDefs()
+	sawSettings := false
+	for _, d := range visible {
+		if d.ID == "claude" || d.ID == "nas" {
+			t.Fatalf("hidden tab %s is visible", d.ID)
+		}
+		if d.ID == "settings" {
+			sawSettings = true
+		}
+	}
+	if !sawSettings {
+		t.Fatal("settings must remain visible")
+	}
+}
+
 func TestSetupDockerOptions(t *testing.T) {
 	t.Setenv("TASH_HOME", t.TempDir())
 	m, err := New(Options{})
