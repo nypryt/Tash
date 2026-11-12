@@ -28,8 +28,8 @@ jobs:
         run: ./scripts/build.ps1 -Targets "windows/amd64 windows/arm64" -SkipMacDMG -Clean
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-windows
-          path: dist/*
+          name: temp-windows
+          path: TEMP/*
           if-no-files-found: error
 
   linux:
@@ -48,8 +48,8 @@ jobs:
           ./scripts/build.sh --targets "linux/amd64 linux/arm64" --skip-dmg --clean
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-linux
-          path: dist/*
+          name: temp-linux
+          path: TEMP/*
           if-no-files-found: error
 
   macos-intel:
@@ -68,8 +68,8 @@ jobs:
           ./scripts/build.sh --targets "darwin/amd64" --clean
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-macos-amd64
-          path: dist/*
+          name: temp-macos-amd64
+          path: TEMP/*
           if-no-files-found: error
 
   macos-arm64:
@@ -88,8 +88,8 @@ jobs:
           ./scripts/build.sh --targets "darwin/arm64" --clean
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-macos-arm64
-          path: dist/*
+          name: temp-macos-arm64
+          path: TEMP/*
           if-no-files-found: error
 
   publish:
@@ -98,36 +98,40 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: dist-*
-          path: dist
+          pattern: temp-*
+          path: release
           merge-multiple: true
       - name: Rebuild checksums across every artifact
         run: |
-          rm -f dist/checksums.txt
-          cd dist
+          rm -f release/checksums.txt
+          cd release
           sha256sum * > checksums.txt
           cat checksums.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          files: dist/*
+          files: release/*
           generate_release_notes: true
           body: |
             ## Tash installers
 
-            | Platform | File |
-            | --- | --- |
-            | Windows x64 | `Tash-Setup-*-windows-amd64.exe` |
-            | Windows arm64 | `Tash-Setup-*-windows-arm64.exe` |
-            | Linux x64 | `Tash-Setup-*-linux-amd64.elf` |
-            | Linux arm64 / Termux | `Tash-Setup-*-linux-arm64.elf` |
-            | macOS Intel | `Tash-Setup-*-macos-amd64.dmg` |
-            | macOS Apple Silicon | `Tash-Setup-*-macos-arm64.dmg` |
+            | Platform | Installer | Portable |
+            | --- | --- | --- |
+            | Windows x64 | `Tash-Setup-*-windows-x64.exe` | `Tash-Portable-*-windows-x64.exe` |
+            | Windows arm64 | `Tash-Setup-*-windows-arm64.exe` | `Tash-Portable-*-windows-arm64.exe` |
+            | Linux x64 | `Tash-Setup-*-linux-x64.elf` | `Tash-Portable-*-linux-x64` |
+            | Linux arm64 / Termux | `Tash-Setup-*-linux-arm64.elf` | `Tash-Portable-*-linux-arm64` |
+            | macOS Intel | `Tash-Setup-*-mac-intel.dmg` | `Tash-Portable-*-mac-intel` |
+            | macOS Apple Silicon | `Tash-Setup-*-mac-apple-silicon.dmg` | `Tash-Portable-*-mac-apple-silicon` |
 
             Double-click the `.exe` or `.dmg`, or run the `.elf` from a terminal.
-            The installer opens a terminal, installs `tash`, and starts first-run
-            setup. Choose **Main device** for the first machine; every other
-            machine chooses **Join Tashnet** and needs approval on the main device.
+            The installer asks where to install, offers to install the Go
+            toolchain, installs `tash`, and starts first-run setup. Choose **Main
+            device** for the first machine; every other machine chooses **Join
+            Tashnet** and needs approval on the main device.
+
+            Portable builds are the complete `tash` binary: no installer and no
+            PATH changes. Run `tash dashboard` directly.
 
             The macOS builds are unsigned and not notarized. If Gatekeeper blocks
             them, right-click the installer and choose Open. Verify downloads with

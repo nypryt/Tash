@@ -191,12 +191,13 @@ macOS, plus a six-target cross-compile check.
 
 `.github/workflows/release.yml` runs on tags matching `v*`:
 
-- `windows-latest` builds both Windows installers.
-- `ubuntu-latest` builds both Linux `.elf` installers.
-- `macos-15-intel` builds the Intel DMG.
-- `macos-15` builds the Apple Silicon DMG.
-- The publish job merges artifacts, rebuilds a single `checksums.txt`, and
-  attaches everything to the GitHub release.
+- `windows-latest` builds both Windows installers and portables.
+- `ubuntu-latest` builds both Linux `.elf` installers and portables.
+- `macos-15-intel` builds the Intel installer, portable, and DMG.
+- `macos-15` builds the Apple Silicon installer, portable, and DMG.
+- The publish job merges each job's `TEMP/` bundle, rebuilds a single
+  `checksums.txt`, and attaches the friendly-named installers and portables to
+  the GitHub release.
 
 To cut a release:
 
