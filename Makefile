@@ -38,4 +38,4 @@ installers:
 	./scripts/build.sh --clean
 
 clean:
-	rm -rf bin dist
+	rm -rf bin dist TEMP
