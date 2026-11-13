@@ -64,8 +64,8 @@ func run(args []string) int {
 		return cmdPiHole(rest)
 	case "theme", "themes":
 		return cmdTheme(rest)
-	case "claude":
-		return cmdClaude(rest)
+	case "ai":
+		return cmdAI(rest)
 	case "doctor", "check", "diag":
 		return cmdDoctor(rest)
 	case "version", "-v", "--version":
@@ -896,10 +896,10 @@ func printPiHoleSummary(s pihole.Snapshot) {
 
 // Theme --------------------------------------------------------------------
 
-func cmdClaude(args []string) int {
-	cfg := config.Default().Claude
+func cmdAI(args []string) int {
+	cfg := config.Default().AI
 	if store, err := config.Open(); err == nil {
-		cfg = store.Snapshot().Claude
+		cfg = store.Snapshot().AI
 	}
 	if len(args) == 0 {
 		args = []string{"status"}
@@ -940,14 +940,14 @@ func cmdClaude(args []string) int {
 			prompt = strings.TrimSpace(readLine("Prompt: "))
 		}
 		if prompt == "" {
-			fmt.Fprintln(os.Stderr, "usage: tash claude prompt <text>")
+			fmt.Fprintln(os.Stderr, "usage: tash ai prompt <text>")
 			return 2
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute+15*time.Second)
 		defer cancel()
 		text, err := cc.Prompt(ctx, cfg, prompt, cc.WorkDir(cfg))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "claude:", err)
+			fmt.Fprintln(os.Stderr, "ai:", err)
 			return 1
 		}
 		fmt.Println(text)
@@ -959,17 +959,17 @@ func cmdClaude(args []string) int {
 		}
 		cmd, err := cc.Command(cfg, dir)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "claude:", err)
+			fmt.Fprintln(os.Stderr, "ai:", err)
 			return 1
 		}
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintln(os.Stderr, "claude:", err)
+			fmt.Fprintln(os.Stderr, "ai:", err)
 			return 1
 		}
 		return 0
 	default:
-		fmt.Fprintln(os.Stderr, "usage: tash claude status | prompt <text> | launch [dir]")
+		fmt.Fprintln(os.Stderr, "usage: tash ai status | prompt <text> | launch [dir]")
 		return 2
 	}
 }
@@ -1152,17 +1152,17 @@ func cmdDoctor(args []string) int {
 			fmt.Println("[~] pi-hole: not configured (tash pihole setup)")
 		}
 		fmt.Printf("      NAS: %s (port %d, auto-start %v)\n", cfg.NAS.Root, cfg.NAS.Port, cfg.NAS.AutoStart)
-		if !cfg.Claude.Enabled {
-			fmt.Println("[~] claude: disabled in Settings")
+		if !cfg.AI.Enabled {
+			fmt.Println("[~] ai: disabled in Settings")
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			st := cc.Detect(ctx, cfg.Claude)
+			st := cc.Detect(ctx, cfg.AI)
 			cancel()
 			if st.Available {
-				fmt.Printf("[✓] claude: %s · auth %s · %d projects\n",
+				fmt.Printf("[✓] ai: %s · %s · %d projects\n",
 					firstNonEmpty(st.Version, "installed"), st.AuthMode, len(st.Projects))
 			} else {
-				fmt.Println("[!] claude:", st.Error)
+				fmt.Println("[!] ai:", st.Error)
 			}
 		}
 	}
@@ -1291,13 +1291,13 @@ func printHelp() {
       Configure and control Pi-hole v6 or v5.
 
   tash theme list|set NAME|new NAME [--from BASE]|dir
-  tash claude status|prompt <text>|launch [dir]
-      Inspect or drive the local Claude Code CLI.
+  tash ai status|prompt <text>|launch [dir]
+      Inspect or drive the AI integration.
   tash doctor
   tash version
 
 Dashboard keys: 1-9 tabs, tab next, r refresh, ? about, q quit.
-Settings (9) remaps keys, hides tabs, and configures Claude + NAS.
+Settings (9) remaps keys, hides tabs, and configures AI + NAS.
 Tashnet: joins require approval on the main device; secret regeneration
 disconnects ALL existing devices. Use Tailscale for remote access.
 `)

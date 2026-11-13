@@ -77,6 +77,46 @@ func Builtins() map[string]Theme {
 			Success: "#d4d4d4", Warning: "#bfbfbf", Danger: "#ffffff", Muted: "#6e6e6e",
 			Text: "#f2f2f2", Border: "#555555", Selection: "#2d2d2d",
 		},
+		{
+			Name: "tokyo-night", Primary: "#7aa2f7", Secondary: "#bb9af7", Accent: "#e0af68",
+			Success: "#9ece6a", Warning: "#e0af68", Danger: "#f7768e", Muted: "#565f89",
+			Text: "#c0caf5", Border: "#3b4261", Selection: "#1a1b26",
+		},
+		{
+			Name: "catppuccin", Primary: "#cba6f7", Secondary: "#89b4fa", Accent: "#f5c2e7",
+			Success: "#a6e3a1", Warning: "#f9e2af", Danger: "#f38ba8", Muted: "#6c7086",
+			Text: "#cdd6f4", Border: "#313244", Selection: "#1e1e2e",
+		},
+		{
+			Name: "rose-pine", Primary: "#eb6f92", Secondary: "#c4a7e7", Accent: "#f6c177",
+			Success: "#31748f", Warning: "#f6c177", Danger: "#eb6f92", Muted: "#6e6a86",
+			Text: "#e0def4", Border: "#403d52", Selection: "#191724",
+		},
+		{
+			Name: "everforest", Primary: "#a7c080", Secondary: "#83c092", Accent: "#e69875",
+			Success: "#a7c080", Warning: "#e69875", Danger: "#e67e80", Muted: "#7a8478",
+			Text: "#d3c6aa", Border: "#3d403f", Selection: "#2d353b",
+		},
+		{
+			Name: "kanagawa", Primary: "#7e9cd8", Secondary: "#957fb8", Accent: "#dca561",
+			Success: "#76946a", Warning: "#dca561", Danger: "#c34043", Muted: "#727169",
+			Text: "#dcd7ba", Border: "#2d4f67", Selection: "#1f1f28",
+		},
+		{
+			Name: "onedark", Primary: "#61afef", Secondary: "#c678dd", Accent: "#e5c07b",
+			Success: "#98c379", Warning: "#e5c07b", Danger: "#e06c75", Muted: "#5c6370",
+			Text: "#abb2bf", Border: "#3e4451", Selection: "#282c34",
+		},
+		{
+			Name: "solarized-dark", Primary: "#268bd2", Secondary: "#6c71c4", Accent: "#b58900",
+			Success: "#859900", Warning: "#b58900", Danger: "#dc322f", Muted: "#586e75",
+			Text: "#839496", Border: "#073642", Selection: "#002b36",
+		},
+		{
+			Name: "high-contrast", Primary: "#ffff00", Secondary: "#00ffff", Accent: "#ff00ff",
+			Success: "#00ff00", Warning: "#ffff00", Danger: "#ff0000", Muted: "#aaaaaa",
+			Text: "#ffffff", Border: "#ffff00", Selection: "#0000aa",
+		},
 	}
 	m := make(map[string]Theme, len(list))
 	for _, t := range list {

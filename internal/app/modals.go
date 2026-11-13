@@ -460,71 +460,76 @@ func (m *Model) runModalAction(action, value string) (tea.Model, tea.Cmd) {
 		m.setToast("NAS root: "+m.cfg.NAS.Root, false)
 		return m, nil
 
-	case "claude-prompt":
-		prompt := strings.TrimSpace(value)
-		if prompt == "" {
-			m.modal = modal{}
-			m.setToast("prompt is empty", true)
-			return m, nil
-		}
-		m.modal = modal{}
-		m.setToast("Claude Code is thinking…", false)
-		return m, m.claudePromptCmd(prompt, m.claudeWorkDir())
-
-	case "set-claude-key":
-		m.updateClaude(func(c *config.ClaudeConfig) {
+	case "set-ai-key":
+		m.updateAI(func(c *config.AIConfig) {
 			c.APIKey = strings.TrimSpace(value)
 		})
 		m.modal = modal{}
-		m.setToast("Claude API key updated", false)
-		return m, m.claudeDetectCmd()
+		m.setToast("AI API key updated", false)
+		return m, m.aiDetectCmd()
 
-	case "set-claude-model":
-		m.updateClaude(func(c *config.ClaudeConfig) {
+	case "set-ai-model":
+		m.updateAI(func(c *config.AIConfig) {
 			c.Model = strings.TrimSpace(value)
 		})
 		m.modal = modal{}
-		m.setToast("Claude model updated", false)
+		m.setToast("AI model updated", false)
 		return m, nil
 
-	case "set-claude-command":
+	case "set-ai-provider":
+		m.updateAI(func(c *config.AIConfig) {
+			c.Provider = strings.TrimSpace(value)
+		})
+		m.modal = modal{}
+		m.setToast("AI provider updated", false)
+		return m, m.aiDetectCmd()
+
+	case "set-ai-baseurl":
+		m.updateAI(func(c *config.AIConfig) {
+			c.BaseURL = strings.TrimSpace(value)
+		})
+		m.modal = modal{}
+		m.setToast("AI base URL updated", false)
+		return m, m.aiDetectCmd()
+
+	case "set-ai-command":
 		command := strings.TrimSpace(value)
 		if command == "" {
 			command = "claude"
 		}
-		m.updateClaude(func(c *config.ClaudeConfig) {
+		m.updateAI(func(c *config.AIConfig) {
 			c.Command = command
 		})
 		m.modal = modal{}
-		m.setToast("Claude command: "+command, false)
-		return m, m.claudeDetectCmd()
+		m.setToast("AI command: "+command, false)
+		return m, m.aiDetectCmd()
 
-	case "set-claude-workdir":
+	case "set-ai-workdir":
 		dir := strings.TrimSpace(value)
 		if dir != "" {
 			dir = config.ExpandPath(dir)
 		}
-		m.updateClaude(func(c *config.ClaudeConfig) {
+		m.updateAI(func(c *config.AIConfig) {
 			c.WorkDir = dir
 		})
 		m.modal = modal{}
 		if dir == "" {
-			m.setToast("Claude workdir: current directory", false)
+			m.setToast("AI workdir: current directory", false)
 		} else {
-			m.setToast("Claude workdir: "+dir, false)
+			m.setToast("AI workdir: "+dir, false)
 		}
 		return m, nil
 
-	case "set-claude-permission":
+	case "set-ai-permission":
 		mode := strings.TrimSpace(value)
 		if mode == "" {
 			mode = "default"
 		}
-		m.updateClaude(func(c *config.ClaudeConfig) {
+		m.updateAI(func(c *config.AIConfig) {
 			c.PermissionMode = mode
 		})
 		m.modal = modal{}
-		m.setToast("Claude permission mode: "+mode, false)
+		m.setToast("AI permission mode: "+mode, false)
 		return m, nil
 
 	case "set-key-refresh", "set-key-help", "set-key-quit":
@@ -1037,52 +1042,148 @@ func (m *Model) nasUp() {
 	m.nasIdx = 0
 }
 
-func (m *Model) keyClaude(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	projects := m.claude.Projects
-	switch msg.String() {
-	case "up", "k":
-		if m.claudeProjIdx > 0 {
-			m.claudeProjIdx--
-		}
-	case "down", "j":
-		if m.claudeProjIdx < len(projects)-1 {
-			m.claudeProjIdx++
-		}
+func (m *Model) keyAI(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
 	case "enter":
-		if len(projects) == 0 {
-			m.setToast("no project selected", true)
+		if m.aiBusy {
+			m.setToast("AI is still thinking…", false)
 			return m, nil
 		}
-		if m.claudeProjIdx >= len(projects) {
-			m.claudeProjIdx = len(projects) - 1
+		return m, m.aiSend()
+	case "up":
+		m.aiScroll++
+	case "down":
+		if m.aiScroll > 0 {
+			m.aiScroll--
 		}
-		dir := projects[m.claudeProjIdx].Path
-		if m.store != nil {
-			if err := m.store.Update(func(c *config.Config) error {
-				c.Claude.WorkDir = dir
-				return nil
-			}); err != nil {
-				m.setToast("workdir: "+err.Error(), true)
-				return m, nil
-			}
-			m.cfg = m.store.Snapshot()
+	case "pgup":
+		m.aiScroll += 8
+	case "pgdown":
+		m.aiScroll = maxInt(m.aiScroll-8, 0)
+	case "left":
+		m.aiCursor = maxInt(m.aiCursor-1, 0)
+	case "right":
+		m.aiCursor = minInt(m.aiCursor+1, len([]rune(m.aiInput)))
+	case "home", "ctrl+a":
+		m.aiCursor = 0
+	case "end", "ctrl+e":
+		m.aiCursor = len([]rune(m.aiInput))
+	case "backspace":
+		m.aiDeleteBack()
+	case "delete", "ctrl+d":
+		m.aiDeleteForward()
+	case "ctrl+u":
+		m.aiInput = ""
+		m.aiCursor = 0
+	case "ctrl+w":
+		m.aiDeleteWord()
+	case "ctrl+n":
+		m.aiNewChat()
+		m.setToast("Started a new AI conversation", false)
+	case "ctrl+r":
+		return m, m.aiDetectCmd()
+	case "ctrl+o":
+		m.modal = inputModal("AI WORKDIR", "Project directory:", m.aiWorkDir(), "AI runs here. Blank uses the current directory.", "set-ai-workdir", false)
+	case "ctrl+y":
+		m.modal = inputModal("AI API KEY", "API key (blank clears):", m.cfg.AI.APIKey, "Stored in config.json with 0600 permissions.", "set-ai-key", true)
+	case "ctrl+l":
+		m.modal = inputModal("AI MODEL", "Model name (blank = default):", m.cfg.AI.Model, "Enter the model identifier for your provider.", "set-ai-model", false)
+	case "tab":
+		m.cycleTab(1)
+	case "shift+tab":
+		m.cycleTab(-1)
+	case "esc":
+		if m.aiInput != "" {
+			m.aiInput = ""
+			m.aiCursor = 0
 		}
-		m.setToast("Claude workdir: "+dir, false)
-	case "c", "C":
-		return m, m.claudeLaunchCmd()
-	case "p":
-		m.modal = inputModal("CLAUDE CODE // PROMPT", "One-shot prompt (`claude -p`):", "", strings.Join([]string{
-			"Runs Claude Code non-interactively in the selected workdir.",
-			"The response appears in a modal. Long runs time out after 3 minutes.",
-		}, "\n"), "claude-prompt", false)
-	case "w":
-		m.modal = inputModal("CLAUDE WORKDIR", "Project directory:", m.claudeWorkDir(), "Used for prompts and interactive launches.", "set-claude-workdir", false)
-	case "a":
-		m.modal = inputModal("CLAUDE API KEY", "ANTHROPIC_API_KEY (blank clears):", m.cfg.Claude.APIKey, "Stored in config.json with 0600 permissions.", "set-claude-key", true)
-	case "s":
-		m.setTab(TabSettings)
+	case " ":
+		m.aiInsert(" ")
+	default:
+		if len(key) == 1 && key >= " " && key <= "~" {
+			m.aiInsert(key)
+		}
 	}
 	return m, nil
+}
+
+func (m *Model) aiSend() tea.Cmd {
+	prompt := strings.TrimSpace(m.aiInput)
+	if prompt == "" {
+		return nil
+	}
+	if !m.cfg.AI.Enabled {
+		m.setToast("AI integration is disabled in Settings", true)
+		return nil
+	}
+	m.aiChat = append(m.aiChat, aiTurn{Role: "you", Text: prompt})
+	m.aiInput = ""
+	m.aiCursor = 0
+	m.aiBusy = true
+	m.aiChatErr = ""
+	m.aiScroll = 0
+	return m.aiChatCmd(prompt, m.aiWorkDir(), m.aiSession, m.aiGen)
+}
+
+func (m *Model) aiNewChat() {
+	m.aiChat = nil
+	m.aiSession = ""
+	m.aiInput = ""
+	m.aiCursor = 0
+	m.aiScroll = 0
+	m.aiBusy = false
+	m.aiChatErr = ""
+	m.aiGen++
+}
+
+func (m *Model) aiInsert(text string) {
+	if text == "" {
+		return
+	}
+	text = strings.ReplaceAll(text, "\r\n", " ")
+	text = strings.NewReplacer("\n", " ", "\r", " ", "\t", "  ").Replace(text)
+	r := []rune(m.aiInput)
+	c := minInt(m.aiCursor, len(r))
+	added := []rune(text)
+	m.aiInput = string(r[:c]) + string(added) + string(r[c:])
+	m.aiCursor = c + len(added)
+}
+
+func (m *Model) aiDeleteBack() {
+	r := []rune(m.aiInput)
+	c := minInt(m.aiCursor, len(r))
+	if c <= 0 {
+		return
+	}
+	m.aiInput = string(r[:c-1]) + string(r[c:])
+	m.aiCursor = c - 1
+}
+
+func (m *Model) aiDeleteForward() {
+	r := []rune(m.aiInput)
+	c := minInt(m.aiCursor, len(r))
+	if c >= len(r) {
+		return
+	}
+	m.aiInput = string(r[:c]) + string(r[c+1:])
+}
+
+func (m *Model) aiDeleteWord() {
+	r := []rune(m.aiInput)
+	c := minInt(m.aiCursor, len(r))
+	if c <= 0 {
+		return
+	}
+	start := c
+	for start > 0 && r[start-1] == ' ' {
+		start--
+	}
+	for start > 0 && r[start-1] != ' ' {
+		start--
+	}
+	m.aiInput = string(r[:start]) + string(r[c:])
+	m.aiCursor = start
 }
 
 func (m *Model) keySettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1169,43 +1270,55 @@ func (m *Model) activateSetting() (tea.Model, tea.Cmd) {
 		m.settings = settingsThemes
 		m.syncThemeIndex()
 	case 1:
-		m.updateClaude(func(c *config.ClaudeConfig) {
+		m.updateAI(func(c *config.AIConfig) {
 			c.Enabled = !c.Enabled
 		})
 	case 2:
-		m.modal = inputModal("CLAUDE API KEY", "ANTHROPIC_API_KEY (blank clears):", m.cfg.Claude.APIKey, "Stored in config.json with 0600 permissions.", "set-claude-key", true)
+		m.modal = inputModal("AI PROVIDER", "Provider (claude, openai, anthropic, custom):", m.cfg.AI.Provider, "Choose your AI provider.", "set-ai-provider", false)
 	case 3:
-		m.modal = inputModal("CLAUDE MODEL", "Model passed to Claude Code (blank = default):", m.cfg.Claude.Model, "Examples: sonnet, opus, or a full model ID.", "set-claude-model", false)
+		m.modal = inputModal("AI BASE URL", "Custom API base URL (blank = default):", m.cfg.AI.BaseURL, "For OpenAI-compatible APIs, e.g. https://api.openai.com/v1", "set-ai-baseurl", false)
 	case 4:
-		m.modal = inputModal("CLAUDE COMMAND", "CLI name or absolute path:", m.cfg.Claude.Command, "Default: claude", "set-claude-command", false)
+		m.modal = inputModal("AI API KEY", "API key (blank clears):", m.cfg.AI.APIKey, "Stored in config.json with 0600 permissions.", "set-ai-key", true)
 	case 5:
-		m.modal = inputModal("CLAUDE WORKDIR", "Default project directory:", m.cfg.Claude.WorkDir, "Blank uses the current directory or the selected project.", "set-claude-workdir", false)
+		m.modal = inputModal("AI MODEL", "Model name (blank = default):", m.cfg.AI.Model, "Enter the model identifier for your provider.", "set-ai-model", false)
 	case 6:
-		m.modal = inputModal("CLAUDE PERMISSION MODE", "default, acceptEdits, plan, or bypassPermissions:", m.cfg.Claude.PermissionMode, "Passed as --permission-mode for one-shot prompts.", "set-claude-permission", false)
+		m.modal = inputModal("AI COMMAND", "CLI name or absolute path (for claude provider):", m.cfg.AI.Command, "Default: claude", "set-ai-command", false)
 	case 7:
-		m.modal = inputModal("SET NAS PASSWORD", "New WebDAV password (blank = random):", "", "The NAS server restarts if it is running.", "nas-password", true)
+		m.modal = inputModal("AI WORKDIR", "Default project directory:", m.cfg.AI.WorkDir, "Blank uses the current directory or the selected project.", "set-ai-workdir", false)
 	case 8:
-		m.modal = inputModal("NAS ROOT", "Folder exposed over WebDAV:", m.cfg.NAS.Root, "Created automatically when the NAS starts.", "set-nas-root", false)
+		m.modal = inputModal("AI PERMISSION MODE", "default, acceptEdits, plan, or bypassPermissions:", m.cfg.AI.PermissionMode, "Passed as --permission-mode for one-shot prompts.", "set-ai-permission", false)
 	case 9:
-		m.modal = inputModal("REFRESH KEY", "Global refresh key:", m.keybind("refresh"), "Examples: r, R, ctrl+r", "set-key-refresh", false)
+		m.modal = inputModal("SET NAS PASSWORD", "New WebDAV password (blank = random):", "", "The NAS server restarts if it is running.", "nas-password", true)
 	case 10:
-		m.modal = inputModal("HELP KEY", "About/help key:", m.keybind("help"), "Examples: ?, h, ctrl+h", "set-key-help", false)
+		m.modal = inputModal("NAS ROOT", "Folder exposed over WebDAV:", m.cfg.NAS.Root, "Created automatically when the NAS starts.", "set-nas-root", false)
 	case 11:
-		m.modal = inputModal("QUIT KEY", "Quit key:", m.keybind("quit"), "Examples: q, Q, ctrl+q. ctrl+c always quits.", "set-key-quit", false)
+		m.modal = inputModal("REFRESH KEY", "Global refresh key:", m.keybind("refresh"), "Examples: r, R, ctrl+r", "set-key-refresh", false)
 	case 12:
+		m.modal = inputModal("HELP KEY", "About/help key:", m.keybind("help"), "Examples: ?, h, ctrl+h", "set-key-help", false)
+	case 13:
+		m.modal = inputModal("QUIT KEY", "Quit key:", m.keybind("quit"), "Examples: q, Q, ctrl+q. ctrl+c always quits.", "set-key-quit", false)
+	case 14:
 		m.settings = settingsTabs
 		m.tabCfgIdx = 0
-	case 13:
+	case 15:
 		m.updateUI(func(c *config.UIConfig) {
 			c.Splash = !c.Splash
 		})
-	case 14:
+	case 16:
 		m.updateUI(func(c *config.UIConfig) {
 			c.Clock24 = !c.Clock24
 		})
-	case 15:
+	case 17:
 		m.cycleDeckLayout()
-	case 16:
+	case 18:
+		m.updateUI(func(c *config.UIConfig) {
+			if c.TabPosition == "top" {
+				c.TabPosition = "bottom"
+			} else {
+				c.TabPosition = "top"
+			}
+		})
+	case 19:
 		m.modal = infoModal("ABOUT TASH // OPERATOR MANUAL", m.aboutBody())
 	}
 	return m, nil
@@ -1226,13 +1339,13 @@ func (m *Model) updateUI(fn func(*config.UIConfig)) {
 	m.cfg = m.store.Snapshot()
 }
 
-func (m *Model) updateClaude(fn func(*config.ClaudeConfig)) {
+func (m *Model) updateAI(fn func(*config.AIConfig)) {
 	if m.store == nil {
 		m.setToast("no configuration", true)
 		return
 	}
 	if err := m.store.Update(func(c *config.Config) error {
-		fn(&c.Claude)
+		fn(&c.AI)
 		return nil
 	}); err != nil {
 		m.setToast("settings: "+err.Error(), true)

@@ -33,8 +33,8 @@ tash dashboard
 - **Themes & Settings** — bundled palettes, live preview, custom JSON themes,
   tab visibility, tab numbers/order, deck layouts, key binding remapping, and an
   About panel.
-- **Claude Code** — detects the CLI, lists recent projects, launches interactive
-  sessions, and runs one-shot `claude -p` prompts.
+- **Claude Code** — an in-tab chat with the local Claude Code CLI, with resumable
+  multi-turn conversations, tool use in the workdir, and no external TUI.
 - **Tashnet** — a secret-key network where every new device needs explicit
   approval on the main device. Main-role handover and secret regeneration are
   built in.
@@ -356,22 +356,26 @@ buffer, and `ctrl+1`…`ctrl+9` switch tabs.
 
 ### Claude Code
 
-Tab 8 integrates the local Claude Code CLI:
+The **CLAUDE** tab is an in-app Claude Code conversation:
 
 - Detects the `claude` binary, its version, config file, and auth mode.
-- Lists recent projects from `~/.claude.json`; `enter` makes one the workdir.
-- `c` launches an interactive Claude Code session in the workdir.
-- `p` runs a one-shot `claude -p` prompt and shows the response in a modal.
-- `w` changes the workdir, `a` sets an `ANTHROPIC_API_KEY`.
+- Type a message and press `enter` to talk to Claude without leaving Tash. The
+  conversation is resumed on every turn, so follow-up questions keep context.
+- Claude runs in the workdir shown on the tab and can use its normal tools there.
+- `ctrl+n` starts a fresh conversation, `ctrl+o` changes the workdir,
+  `ctrl+k` sets an `ANTHROPIC_API_KEY`, and `ctrl+r` refreshes detection.
+- `↑`/`↓` scroll the conversation; `esc` clears the current input line.
 
 Install the official CLI (for example
 `npm install -g @anthropic-ai/claude-code`), then run `claude` once to sign in.
 Set the command, model, API key, workdir, and permission mode in Settings.
+The `tash claude prompt` and `tash claude launch` commands remain available for
+scripting and for opening the standalone CLI when you want it.
 
 ### Settings
 
-Tab 9 is the control plane for the dashboard itself. `↑`/`↓` selects a row and
-`enter` edits it:
+The **SETTINGS** tab is the control plane for the dashboard itself. `↑`/`↓`
+selects a row and `enter` edits it:
 
 - Theme picker with live preview (same themes as before).
 - Claude integration toggle, API key, model, command, workdir, permission mode.

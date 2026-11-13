@@ -57,20 +57,23 @@ type TailscaleConfig struct {
 
 // UIConfig holds cosmetic settings, tab layout, and key bindings.
 type UIConfig struct {
-	Theme      string            `json:"theme"`
-	Splash     bool              `json:"splash"`
-	Clock24    bool              `json:"clock_24h"`
-	TabOrder   []string          `json:"tab_order,omitempty"`
-	TabNumbers map[string]string `json:"tab_numbers,omitempty"`
-	HiddenTabs []string          `json:"hidden_tabs,omitempty"`
-	Keybinds   map[string]string `json:"keybinds,omitempty"`
-	DeckLayout string            `json:"deck_layout,omitempty"` // auto, cards, compact
+	Theme       string            `json:"theme"`
+	Splash      bool              `json:"splash"`
+	Clock24     bool              `json:"clock_24h"`
+	TabOrder    []string          `json:"tab_order,omitempty"`
+	TabNumbers  map[string]string `json:"tab_numbers,omitempty"`
+	HiddenTabs  []string          `json:"hidden_tabs,omitempty"`
+	Keybinds    map[string]string `json:"keybinds,omitempty"`
+	DeckLayout  string            `json:"deck_layout,omitempty"`   // auto, cards, compact
+	TabPosition string            `json:"tab_position,omitempty"`  // top, bottom
 }
 
-// ClaudeConfig controls the Claude Code integration.
-type ClaudeConfig struct {
+// AIConfig controls the AI integration (Claude Code, OpenAI-compatible, etc.).
+type AIConfig struct {
 	Enabled        bool   `json:"enabled"`
-	Command        string `json:"command"`
+	Provider       string `json:"provider"`         // claude, openai, anthropic, custom
+	BaseURL        string `json:"base_url"`         // custom API base URL (for BYOK)
+	Command        string `json:"command"`          // CLI command (for claude provider)
 	APIKey         string `json:"api_key,omitempty"`
 	Model          string `json:"model,omitempty"`
 	WorkDir        string `json:"work_dir,omitempty"`
@@ -78,7 +81,7 @@ type ClaudeConfig struct {
 }
 
 // TabIDs are the stable identifiers used for tab numbering and visibility.
-var TabIDs = []string{"deck", "tailscale", "pihole", "docker", "tashnet", "nas", "editor", "claude", "settings"}
+var TabIDs = []string{"deck", "tailscale", "pihole", "docker", "tashnet", "nas", "editor", "ai", "settings"}
 
 // DefaultTabOrder is the factory dashboard tab order.
 func DefaultTabOrder() []string { return append([]string(nil), TabIDs...) }
@@ -170,7 +173,7 @@ type Config struct {
 	NAS            NASConfig       `json:"nas"`
 	Docker         DockerConfig    `json:"docker"`
 	Tailscale      TailscaleConfig `json:"tailscale"`
-	Claude         ClaudeConfig    `json:"claude"`
+	AI             AIConfig        `json:"ai"`
 	LastEditorFile string          `json:"last_editor_file,omitempty"`
 }
 
@@ -186,7 +189,7 @@ func Default() Config {
 		CreatedAt: now,
 		UpdatedAt: now,
 		UI: UIConfig{
-			Theme: "matrix", Splash: true, Clock24: true, DeckLayout: "auto",
+			Theme: "matrix", Splash: true, Clock24: true, DeckLayout: "auto", TabPosition: "top",
 			TabOrder: DefaultTabOrder(), TabNumbers: DefaultTabNumbers(), Keybinds: DefaultKeybinds(),
 		},
 		Tashnet: TashnetConfig{
@@ -209,8 +212,11 @@ func Default() Config {
 		Docker:    DockerConfig{Mode: "cli", Host: DefaultDockerHost()},
 		Tailscale: TailscaleConfig{PingEnabled: true, IntervalSec: 10, MaxPeers: 5},
 		PiHole:    PiHoleConfig{RefreshSec: 5},
-		Claude: ClaudeConfig{
-			Enabled: true, Command: "claude", PermissionMode: "default",
+		AI: AIConfig{
+			Enabled:  true,
+			Provider: "claude",
+			Command:  "claude",
+			PermissionMode: "default",
 		},
 	}
 }
@@ -220,7 +226,7 @@ func (c *Config) Normalize() {
 	def := Default()
 	// Schema 2 added Claude settings; enable them for upgraded configs.
 	if c.Version < 2 {
-		c.Claude.Enabled = true
+		c.AI.Enabled = true
 		c.Version = 2
 	}
 	if c.Version == 0 {
@@ -295,14 +301,17 @@ func (c *Config) Normalize() {
 	if c.NAS.Root != "" {
 		c.NAS.Root = ExpandPath(c.NAS.Root)
 	}
-	if strings.TrimSpace(c.Claude.Command) == "" {
-		c.Claude.Command = "claude"
+	if strings.TrimSpace(c.AI.Command) == "" {
+		c.AI.Command = "claude"
 	}
-	if strings.TrimSpace(c.Claude.PermissionMode) == "" {
-		c.Claude.PermissionMode = "default"
+	if strings.TrimSpace(c.AI.PermissionMode) == "" {
+		c.AI.PermissionMode = "default"
 	}
-	if c.Claude.WorkDir != "" {
-		c.Claude.WorkDir = ExpandPath(c.Claude.WorkDir)
+	if strings.TrimSpace(c.AI.Provider) == "" {
+		c.AI.Provider = "claude"
+	}
+	if c.AI.WorkDir != "" {
+		c.AI.WorkDir = ExpandPath(c.AI.WorkDir)
 	}
 }
 
@@ -327,6 +336,9 @@ func (c *Config) normalizeUITabs() {
 
 	if c.UI.DeckLayout != "cards" && c.UI.DeckLayout != "compact" {
 		c.UI.DeckLayout = "auto"
+	}
+	if c.UI.TabPosition != "top" && c.UI.TabPosition != "bottom" {
+		c.UI.TabPosition = "top"
 	}
 
 	if c.UI.TabNumbers == nil {

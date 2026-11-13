@@ -19,7 +19,7 @@ Docker CLIs when those modes are selected.
 | `internal/pihole` | Pi-hole v6 session client with v5 fallback, snapshots, block/gravity/blocking actions. |
 | `internal/docker` | Docker CLI mode and Engine API mode (Unix socket, npipe, TCP), snapshots and actions. |
 | `internal/nas` | Authenticated WebDAV server, root management, landing page, request counter. |
-| `internal/claude` | Claude Code CLI detection, project discovery, one-shot prompts, interactive launch. |
+| `internal/claude` | Claude Code CLI detection, project discovery, one-shot prompts, in-tab chat sessions. |
 | `internal/editor` | Vim-style modal editor used both in a tab and standalone. |
 | `internal/sysinfo` | Hostname, user, OS name, local/Tailscale IPs, runtime version. |
 | `internal/version` | Version, commit, and build date injected with ldflags. |

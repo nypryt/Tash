@@ -122,6 +122,15 @@ func (m *Model) viewDashboard() string {
 	body = fitBlock(body, w, bodyH)
 	status := m.statusLine(w)
 	footer := m.styles.Footer(w, m.footerHints())
+
+	tabPos := m.cfg.UI.TabPosition
+	if tabPos != "bottom" {
+		tabPos = "top"
+	}
+
+	if tabPos == "bottom" {
+		return strings.Join([]string{header, body, status, tabs, footer}, "\n")
+	}
 	return strings.Join([]string{header, tabs, body, status, footer}, "\n")
 }
 
@@ -171,8 +180,8 @@ func (m *Model) tabBody(t Tab) string {
 		return m.viewNAS()
 	case TabEditor:
 		return m.editor.View()
-	case TabClaude:
-		return m.viewClaude()
+	case TabAI:
+		return m.viewAI()
 	case TabSettings:
 		return m.viewSettings()
 	default:
@@ -203,8 +212,8 @@ func (m *Model) footerHints() [][2]string {
 		}
 	case TabNAS:
 		hints = append(hints, [2]string{"s", "start/stop"}, [2]string{"P", "set password"}, [2]string{"p", "reveal"}, [2]string{"enter", "open"}, [2]string{"⌫", "up"})
-	case TabClaude:
-		hints = append(hints, [2]string{"c", "launch"}, [2]string{"p", "prompt"}, [2]string{"w", "workdir"}, [2]string{"a", "api key"}, [2]string{"↑↓", "project"}, [2]string{"enter", "use project"})
+	case TabAI:
+		hints = append(hints, [2]string{"c", "launch"}, [2]string{"p", "prompt"}, [2]string{"w", "workdir"}, [2]string{"a", "api key"}, [2]string{"m", "models"}, [2]string{"↑↓", "project"}, [2]string{"enter", "use project"})
 	case TabSettings:
 		hints = append(hints, [2]string{"↑↓", "select"}, [2]string{"enter", "edit"}, [2]string{"esc", "back"})
 	}
@@ -1041,23 +1050,29 @@ type settingRow struct {
 }
 
 func (m *Model) settingsRows() []settingRow {
-	claudeState := "off"
-	if m.cfg.Claude.Enabled {
-		claudeState = "on"
+	aiState := "off"
+	if m.cfg.AI.Enabled {
+		aiState = "on"
 	}
 	keyState := "not set"
-	if strings.TrimSpace(m.cfg.Claude.APIKey) != "" {
+	if strings.TrimSpace(m.cfg.AI.APIKey) != "" {
 		keyState = "set"
 	}
+	providerState := firstNonEmpty(m.cfg.AI.Provider, "claude")
+	modelState := firstNonEmpty(m.cfg.AI.Model, "default")
+	commandState := firstNonEmpty(m.cfg.AI.Command, "claude")
+	baseURLState := firstNonEmpty(m.cfg.AI.BaseURL, "(default)")
 	hidden := len(m.cfg.UI.HiddenTabs)
 	rows := []settingRow{
 		{"Theme", m.currentThemeName(), "visual matrix and custom themes"},
-		{"Claude integration", claudeState, "enable or disable the Claude tab"},
-		{"Claude API key", keyState, "ANTHROPIC_API_KEY for Claude Code"},
-		{"Claude model", firstNonEmpty(m.cfg.Claude.Model, "default"), "passed as --model"},
-		{"Claude command", firstNonEmpty(m.cfg.Claude.Command, "claude"), "CLI name or absolute path"},
-		{"Claude workdir", firstNonEmpty(m.cfg.Claude.WorkDir, "(current directory)"), "default project directory"},
-		{"Claude permission", firstNonEmpty(m.cfg.Claude.PermissionMode, "default"), "default, acceptEdits, plan, bypassPermissions"},
+		{"AI integration", aiState, "enable or disable in-app AI chat"},
+		{"AI provider", providerState, "claude, openai, anthropic, custom"},
+		{"AI base URL", baseURLState, "custom API endpoint (for BYOK)"},
+		{"AI API key", keyState, "API key for the selected provider"},
+		{"AI model", modelState, "model name to use"},
+		{"AI command", commandState, "CLI name or absolute path (for claude provider)"},
+		{"AI workdir", firstNonEmpty(m.cfg.AI.WorkDir, "(current directory)"), "default project directory"},
+		{"AI permission", firstNonEmpty(m.cfg.AI.PermissionMode, "default"), "default, acceptEdits, plan, bypassPermissions"},
 		{"NAS password", m.nasPassword(), "WebDAV Basic auth password"},
 		{"NAS root", m.cfg.NAS.Root, "folder exposed over WebDAV"},
 		{"Refresh key", m.keybind("refresh"), "global refresh binding"},
@@ -1067,6 +1082,7 @@ func (m *Model) settingsRows() []settingRow {
 		{"Splash screen", onOff(m.cfg.UI.Splash), "animated startup screen"},
 		{"24-hour clock", onOff(m.cfg.UI.Clock24), "header clock format"},
 		{"Deck layout", firstNonEmpty(m.cfg.UI.DeckLayout, "auto"), "auto, cards, or compact overview"},
+		{"Tab position", firstNonEmpty(m.cfg.UI.TabPosition, "top"), "top or bottom"},
 		{"About Tash", "v" + versionString() + " · Nypr", "version, help, paths, copyright"},
 	}
 	return rows
@@ -1219,10 +1235,10 @@ func themeSwatches(t theme.Theme) string {
 	return b.String()
 }
 
-func (m *Model) viewClaude() string {
+func (m *Model) viewAI() string {
 	w := m.contentWidth()
 	h := m.bodyHeight()
-	st := m.claude
+	st := m.ai
 	state := m.styles.Warning.Render("○ NOT DETECTED")
 	if st.Available {
 		state = m.styles.Success.Render("● READY")
@@ -1230,57 +1246,112 @@ func (m *Model) viewClaude() string {
 	if !st.Enabled {
 		state = m.styles.Danger.Render("○ DISABLED")
 	}
+	meta := []string{}
+	if st.Version != "" {
+		meta = append(meta, st.Version)
+	}
+	if st.AuthMode != "" && st.AuthMode != "not detected" {
+		meta = append(meta, "auth "+st.AuthMode)
+	}
+	provider := firstNonEmpty(strings.TrimSpace(m.cfg.AI.Provider), "claude")
+	if model := strings.TrimSpace(m.cfg.AI.Model); model != "" {
+		meta = append(meta, "model "+model)
+	}
 	content := []string{
-		state + m.styles.Muted.Render("  ·  Claude Code integration"),
-		"",
-		m.styles.KV("command", firstNonEmpty(st.Command, m.cfg.Claude.Command, "claude"), 10),
-		m.styles.KV("version", firstNonEmpty(st.Version, "not detected"), 10),
-		m.styles.KV("path", firstNonEmpty(st.Path, "not found in PATH"), 10),
-		m.styles.KV("auth", firstNonEmpty(st.AuthMode, "not detected"), 10),
-		m.styles.KV("model", firstNonEmpty(m.cfg.Claude.Model, "default"), 10),
-		m.styles.KV("api key", keyState(m.cfg.Claude.APIKey), 10),
-		m.styles.KV("workdir", m.claudeWorkDir(), 10),
+		state + m.styles.Muted.Render("  ·  AI conversation ("+provider+")"),
+		m.styles.Muted.Render(firstNonEmpty(strings.Join(meta, " · "), "detecting AI provider…")),
+		m.styles.KV("workdir", m.aiWorkDir(), 9),
 	}
-	if st.ConfigFile != "" {
-		found := "missing"
-		if st.ConfigFound {
-			found = "found"
-		}
-		content = append(content, m.styles.KV("config", st.ConfigFile+" ("+found+")", 10))
-	}
-	if st.Error != "" {
-		content = append(content, "", m.styles.Warning.Render("! "+truncate(st.Error, maxInt(w-8, 20))))
+	if !st.Enabled {
+		content = append(content, "", m.styles.Warning.Render("! Enable AI integration in Settings to chat here."))
+		return m.styles.Panel("AI // CHAT", strings.Join(content, "\n"), w, h, true)
 	}
 	if !st.Available {
-		content = append(content, "", m.styles.SectionTitle("INSTALL CLAUDE CODE", w),
-			m.styles.Muted.Render("Install the official CLI, then run `claude` once to sign in:"),
+		content = append(content, "",
+			m.styles.SectionTitle("AI PROVIDER SETUP", w),
+			m.styles.Muted.Render("Configure your AI provider in Settings (provider, base URL, API key)."),
+			m.styles.Muted.Render("For Claude Code CLI: install it, then run `claude` once to sign in:"),
 			m.styles.Accent.Render("  npm install -g @anthropic-ai/claude-code"),
 			m.styles.Muted.Render("or use the installer from docs.anthropic.com/en/docs/claude-code."),
 			"",
-			m.styles.Muted.Render("You can also set an ANTHROPIC_API_KEY in Settings → Claude API key."),
+			m.styles.Muted.Render("For OpenAI-compatible APIs: set provider, base URL, and API key in Settings."),
 		)
-	}
-	content = append(content, "", m.styles.SectionTitle(fmt.Sprintf("RECENT PROJECTS  %d", len(st.Projects)), w))
-	if len(st.Projects) == 0 {
-		content = append(content, m.styles.Muted.Render("no Claude Code projects found yet"))
-	}
-	rows := maxInt(h-18, 3)
-	start := 0
-	if m.claudeProjIdx >= rows {
-		start = m.claudeProjIdx - rows + 1
-	}
-	for i := start; i < len(st.Projects) && i < start+rows; i++ {
-		p := st.Projects[i]
-		sel := "  "
-		if i == m.claudeProjIdx {
-			sel = m.styles.Primary.Render("▸ ")
+		if st.Error != "" {
+			content = append(content, "", m.styles.Warning.Render("! "+truncate(st.Error, maxInt(w-8, 20))))
 		}
-		content = append(content, fmt.Sprintf("%s%s  %s", sel,
-			m.styles.Text.Render(ui.Fit(p.Path, maxInt(w-22, 20))),
-			m.styles.Muted.Render(ui.HumanAgo(p.LastActive))))
+		return m.styles.Panel("AI // CHAT", strings.Join(content, "\n"), w, h, true)
 	}
-	content = append(content, "", m.styles.Muted.Render("c launch Claude Code · p one-shot prompt · w set workdir · a set API key · enter use project · r refresh"))
-	return m.styles.Panel("CLAUDE // CODE INTEGRATION", strings.Join(content, "\n"), w, h, true)
+	if st.Error != "" && len(m.aiChat) == 0 {
+		content = append(content, m.styles.Warning.Render("! "+truncate(st.Error, maxInt(w-8, 20))))
+	}
+
+	width := maxInt(w-8, 20)
+	lines := m.aiChatLines(width)
+	if len(lines) == 0 {
+		content = append(content, "",
+			m.styles.Muted.Render("Ask AI anything about the current workdir. It can read files"),
+			m.styles.Muted.Render("and run tools there, and this conversation stays inside Tash."),
+			"",
+			m.styles.Muted.Render("ctrl+n starts a fresh conversation · ctrl+o changes the workdir · ctrl+m models"))
+	}
+	reserved := len(content) + 3 // blank + input line + footer
+	if m.aiBusy {
+		reserved += 2
+	}
+	avail := maxInt((h-2)-reserved, 3)
+	if len(lines) > 0 {
+		maxScroll := maxInt(len(lines)-avail, 0)
+		if m.aiScroll > maxScroll {
+			m.aiScroll = maxScroll
+		}
+		end := len(lines) - m.aiScroll
+		start := maxInt(end-avail, 0)
+		content = append(content, lines[start:end]...)
+	}
+	if m.aiBusy {
+		content = append(content, "", m.styles.Accent.Render(m.frame()+" AI is thinking…"))
+	}
+	content = append(content, "", m.styles.Primary.Render("› ")+m.aiInputView(maxInt(w-8, 12)))
+	footer := "enter send · ↑↓ scroll · ctrl+n new chat · ctrl+o workdir · ctrl+a api key · ctrl+m models · ctrl+r refresh"
+	content = append(content, m.styles.Muted.Render(truncate(footer, maxInt(w-8, 20))))
+	return m.styles.Panel("AI // CHAT", strings.Join(content, "\n"), w, h, true)
+}
+
+func (m *Model) aiChatLines(width int) []string {
+	var lines []string
+	for _, turn := range m.aiChat {
+		label := "YOU"
+		style := m.styles.Primary
+		switch turn.Role {
+		case "assistant":
+			label, style = "AI", m.styles.Accent
+		case "error":
+			label, style = "ERROR", m.styles.Danger
+		}
+		lines = append(lines, style.Bold(true).Render("▌ "+label))
+		for _, l := range wrapMultiline(turn.Text, maxInt(width-2, 8)) {
+			lines = append(lines, "  "+m.styles.Text.Render(l))
+		}
+		lines = append(lines, "")
+	}
+	return lines
+}
+
+func (m *Model) aiInputView(width int) string {
+	width = maxInt(width, 4)
+	r := []rune(m.aiInput)
+	c := minInt(m.aiCursor, len(r))
+	start := 0
+	if c >= width-1 {
+		start = c - (width - 2)
+	}
+	end := minInt(start+width-1, len(r))
+	before := string(r[start:c])
+	after := ""
+	if c < len(r) {
+		after = string(r[c:end])
+	}
+	return before + m.styles.Accent.Render("█") + after
 }
 
 func keyState(key string) string {
@@ -1324,10 +1395,11 @@ func (m *Model) aboutBody() string {
 	section("EDITOR")
 	add("%s", m.styles.Muted.Render("Vim-style editor: i insert, Esc normal, :w save, :q quit, :wq write+quit,"))
 	add("%s", m.styles.Muted.Render("/ search, n/N next, dd delete, yy yank, p paste, u undo, ctrl+o open."))
-	section("CLAUDE CODE")
-	add("%s", m.styles.Muted.Render("Tab 8 detects the Claude Code CLI, lists recent projects, launches"))
-	add("%s", m.styles.Muted.Render("interactive sessions, and runs one-shot `claude -p` prompts. Set an API"))
-	add("%s", m.styles.Muted.Render("key, model, workdir, and permission mode in Settings."))
+	section("AI CHAT")
+	add("%s", m.styles.Muted.Render("Tab 8 is an in-app AI conversation: type a message, press enter,"))
+	add("%s", m.styles.Muted.Render("and keep talking in the same session without leaving Tash. AI runs"))
+	add("%s", m.styles.Muted.Render("in the workdir shown on the tab. ctrl+n starts fresh, ctrl+o sets the"))
+	add("%s", m.styles.Muted.Render("workdir, ctrl+a sets an API key, ctrl+m selects model, ctrl+r refreshes."))
 	section("TASHNET SECURITY")
 	add("%s", m.styles.Warning.Render("The secret key is the root of trust for your Tashnet."))
 	add("%s", m.styles.Muted.Render("Regenerating it disconnects EVERY existing device immediately."))

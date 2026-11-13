@@ -122,8 +122,8 @@ func TestNormalizeTabsAndKeybinds(t *testing.T) {
 			t.Fatalf("keybind %q = %q, want %q", action, cfg.UI.Keybinds[action], want)
 		}
 	}
-	if !cfg.Claude.Enabled || cfg.Claude.Command != "claude" || cfg.Claude.PermissionMode != "default" {
-		t.Fatalf("claude defaults = %+v", cfg.Claude)
+	if !cfg.AI.Enabled || cfg.AI.Command != "claude" || cfg.AI.PermissionMode != "default" {
+		t.Fatalf("ai defaults = %+v", cfg.AI)
 	}
 	if len(cfg.UI.TabOrder) != len(TabIDs) {
 		t.Fatalf("tab order = %#v", cfg.UI.TabOrder)
@@ -135,14 +135,14 @@ func TestNormalizeTabsAndKeybinds(t *testing.T) {
 
 func TestNormalizeTabOrder(t *testing.T) {
 	cfg := Config{UI: UIConfig{
-		TabOrder:   []string{"claude", "deck", "claude", "bogus"},
+		TabOrder:   []string{"ai", "deck", "ai", "bogus"},
 		DeckLayout: "weird",
 	}}
 	cfg.Normalize()
 	if len(cfg.UI.TabOrder) != len(TabIDs) {
 		t.Fatalf("tab order = %#v", cfg.UI.TabOrder)
 	}
-	if cfg.UI.TabOrder[0] != "claude" || cfg.UI.TabOrder[1] != "deck" {
+	if cfg.UI.TabOrder[0] != "ai" || cfg.UI.TabOrder[1] != "deck" {
 		t.Fatalf("custom order was not preserved: %#v", cfg.UI.TabOrder)
 	}
 	if cfg.UI.DeckLayout != "auto" {

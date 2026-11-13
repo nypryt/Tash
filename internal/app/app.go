@@ -43,7 +43,7 @@ const (
 	TabTashnet
 	TabNAS
 	TabEditor
-	TabClaude
+	TabAI
 	TabSettings
 )
 
@@ -62,7 +62,7 @@ var tabDefs = []tabDef{
 	{"tashnet", TabTashnet, "TASHNET"},
 	{"nas", TabNAS, "NAS"},
 	{"editor", TabEditor, "EDITOR"},
-	{"claude", TabClaude, "CLAUDE"},
+	{"ai", TabAI, "AI"},
 	{"settings", TabSettings, "SETTINGS"},
 }
 
@@ -85,6 +85,13 @@ func tabDefByID(id string) (tabDef, bool) {
 }
 
 func tabID(t Tab) string { return tabDefFor(t).ID }
+
+// aiTurn is one message in the in-app AI conversation.
+type aiTurn struct {
+	Role string
+	Text string
+	Err  bool
+}
 
 // settingsMode selects the Settings sub-view.
 type settingsMode int
@@ -139,8 +146,15 @@ type Model struct {
 	pendIdx  int
 	showPass bool
 
-	claude        cc.Status
-	claudeProjIdx int
+	ai        cc.Status
+	aiChat    []aiTurn
+	aiInput   string
+	aiCursor  int
+	aiScroll  int
+	aiBusy    bool
+	aiSession string
+	aiChatErr string
+	aiGen     int
 	settings      settingsMode
 	settingsIdx   int
 	tabCfgIdx     int
@@ -475,24 +489,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case claudeStatusMsg:
-		m.claude = msg.status
+		m.ai = msg.status
 		return m, nil
 
-	case claudePromptMsg:
-		if msg.err != nil {
-			m.modal = infoModal("CLAUDE CODE // ERROR", strings.Join(wrapMultiline(msg.err.Error(), maxInt(m.contentWidth()-8, 20)), "\n"))
+	case claudeChatMsg:
+		if msg.gen != m.aiGen {
 			return m, nil
 		}
-		m.modal = infoModal("CLAUDE CODE // RESPONSE", msg.text)
-		return m, nil
-
-	case claudeLaunchDoneMsg:
+		m.aiBusy = false
 		if msg.err != nil {
-			m.setToast("claude: "+msg.err.Error(), true)
+			m.aiChat = append(m.aiChat, aiTurn{Role: "error", Text: msg.err.Error(), Err: true})
+			m.aiChatErr = msg.err.Error()
 		} else {
-			m.setToast("Claude Code session ended", false)
+			if msg.sessionID != "" {
+				m.aiSession = msg.sessionID
+			}
+			m.aiChat = append(m.aiChat, aiTurn{Role: "assistant", Text: msg.text})
+			m.aiChatErr = ""
 		}
-		return m, m.claudeDetectCmd()
+		m.aiScroll = 0
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -580,11 +596,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.modal.active() {
 		return m.handleModalKey(msg)
 	}
-	if !(m.tab == TabSettings && m.settings == settingsTabs) {
+	if !(m.tab == TabSettings && m.settings == settingsTabs) && m.tab != TabAI {
 		if t, ok := m.tabNumber(key); ok {
 			m.setTab(t)
 			return m, nil
 		}
+	}
+	if m.tab == TabAI {
+		if strings.HasPrefix(key, "ctrl+") {
+			if t, ok := m.tabNumber(key); ok {
+				m.setTab(t)
+				return m, nil
+			}
+		}
+		return m.keyAI(msg)
 	}
 	switch key {
 	case m.keybind("quit"):
@@ -620,8 +645,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyTashnet(msg)
 	case TabNAS:
 		return m.keyNAS(msg)
-	case TabClaude:
-		return m.keyClaude(msg)
+	case TabAI:
+		return m.keyAI(msg)
 	case TabSettings:
 		return m.keySettings(msg)
 	case TabOverview:
@@ -780,8 +805,8 @@ func (m *Model) setTab(t Tab) {
 		m.settings = settingsMenu
 		m.syncThemeIndex()
 	}
-	if t == TabClaude {
-		m.claudeProjIdx = 0
+	if t == TabAI {
+		m.aiScroll = 0
 	}
 	m.layout()
 }
@@ -855,8 +880,8 @@ func (m *Model) refreshCmd() tea.Cmd {
 			return heartbeatMsg{resp: resp, err: err}
 		})
 	}
-	if m.tab == TabClaude && (m.claude.FetchedAt.IsZero() || time.Since(m.claude.FetchedAt) > 30*time.Second) {
-		cmds = append(cmds, m.claudeDetectCmd())
+	if m.tab == TabAI && (m.ai.FetchedAt.IsZero() || time.Since(m.ai.FetchedAt) > 30*time.Second) {
+		cmds = append(cmds, m.aiDetectCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -937,8 +962,8 @@ func (m *Model) discoverCmd() tea.Cmd {
 	}
 }
 
-func (m *Model) claudeDetectCmd() tea.Cmd {
-	cfg := m.cfg.Claude
+func (m *Model) aiDetectCmd() tea.Cmd {
+	cfg := m.cfg.AI
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
@@ -946,37 +971,21 @@ func (m *Model) claudeDetectCmd() tea.Cmd {
 	}
 }
 
-func (m *Model) claudePromptCmd(prompt, dir string) tea.Cmd {
-	cfg := m.cfg.Claude
+func (m *Model) aiChatCmd(prompt, dir, sessionID string, gen int) tea.Cmd {
+	cfg := m.cfg.AI
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute+15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute+15*time.Second)
 		defer cancel()
-		text, err := cc.Prompt(ctx, cfg, prompt, dir)
-		return claudePromptMsg{text: text, err: err}
+		res, err := cc.Chat(ctx, cfg, prompt, dir, sessionID)
+		return claudeChatMsg{text: res.Text, sessionID: res.SessionID, err: err, gen: gen}
 	}
 }
 
-func (m *Model) claudeLaunchCmd() tea.Cmd {
-	cfg := m.cfg.Claude
-	dir := m.claudeWorkDir()
-	cmd, err := cc.Command(cfg, dir)
-	if err != nil {
-		m.setToast(err.Error(), true)
-		return nil
-	}
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return claudeLaunchDoneMsg{err: err}
-	})
-}
-
-func (m *Model) claudeWorkDir() string {
-	if dir := strings.TrimSpace(m.cfg.Claude.WorkDir); dir != "" {
+func (m *Model) aiWorkDir() string {
+	if dir := strings.TrimSpace(m.cfg.AI.WorkDir); dir != "" {
 		return dir
 	}
-	if m.claudeProjIdx >= 0 && m.claudeProjIdx < len(m.claude.Projects) {
-		return m.claude.Projects[m.claudeProjIdx].Path
-	}
-	return cc.WorkDir(m.cfg.Claude)
+	return cc.WorkDir(m.cfg.AI)
 }
 
 func (m *Model) themeNames() []string {
@@ -1050,11 +1059,12 @@ type actionMsg struct {
 	err  error
 }
 type claudeStatusMsg struct{ status cc.Status }
-type claudePromptMsg struct {
-	text string
-	err  error
+type claudeChatMsg struct {
+	text      string
+	sessionID string
+	err       error
+	gen       int
 }
-type claudeLaunchDoneMsg struct{ err error }
 
 func notify(text string, err error) actionMsg { return actionMsg{text: text, err: err} }
 

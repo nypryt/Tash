@@ -60,7 +60,7 @@ func TestClientDashboardTabsRender(t *testing.T) {
 		TabTashnet:   "TASHNET // CLIENT UPLINK",
 		TabNAS:       "NAS // WEBDAV VAULT",
 		TabEditor:    "",
-		TabClaude:    "CLAUDE // CODE INTEGRATION",
+		TabAI:        "AI // CHAT",
 		TabSettings:  "SETTINGS // CONTROL PLANE",
 	}
 	for tab, marker := range want {
@@ -75,30 +75,76 @@ func TestClientDashboardTabsRender(t *testing.T) {
 	}
 }
 
+func TestAIChatSendsAndEdits(t *testing.T) {
+	m := &Model{cfg: config.Default(), screen: ScreenDashboard, tab: TabAI}
+	key := func(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+	space := tea.KeyMsg{Type: tea.KeySpace}
+	backspace := tea.KeyMsg{Type: tea.KeyBackspace}
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+
+	// Send individual characters
+	m.keyAI(key("h"))
+	m.keyAI(key("i"))
+	if m.aiInput != "hi" {
+		t.Fatalf("input = %q", m.aiInput)
+	}
+	m.keyAI(space)
+	m.keyAI(key("t"))
+	m.keyAI(key("h"))
+	m.keyAI(key("e"))
+	m.keyAI(key("r"))
+	m.keyAI(key("e"))
+	m.keyAI(backspace)
+	if m.aiInput != "hi ther" {
+		t.Fatalf("edited input = %q", m.aiInput)
+	}
+	_, cmd := m.keyAI(enter)
+	if cmd == nil {
+		t.Fatal("enter produced no command")
+	}
+	if m.aiInput != "" || !m.aiBusy {
+		t.Fatalf("after send input=%q busy=%v", m.aiInput, m.aiBusy)
+	}
+	if len(m.aiChat) != 1 || m.aiChat[0].Role != "you" || m.aiChat[0].Text != "hi ther" {
+		t.Fatalf("chat = %+v", m.aiChat)
+	}
+
+	gen := m.aiGen
+	m.aiNewChat()
+	m.Update(claudeChatMsg{text: "stale", sessionID: "old", gen: gen})
+	if len(m.aiChat) != 0 || m.aiSession != "" {
+		t.Fatalf("stale response leaked into new chat: %+v", m.aiChat)
+	}
+	m.Update(claudeChatMsg{text: "fresh", sessionID: "new", gen: m.aiGen})
+	if len(m.aiChat) != 1 || m.aiChat[0].Text != "fresh" || m.aiSession != "new" {
+		t.Fatalf("fresh response not applied: %+v", m.aiChat)
+	}
+}
+
 func TestTabOrderAndDeckLayout(t *testing.T) {
 	cfg := config.Default()
-	cfg.UI.TabOrder = []string{"settings", "claude", "deck", "tailscale", "pihole", "docker", "tashnet", "nas", "editor"}
+	cfg.UI.TabOrder = []string{"settings", "ai", "deck", "tailscale", "pihole", "docker", "tashnet", "nas", "editor"}
 	m := &Model{cfg: cfg}
 
 	order := m.tabOrderDefs()
 	if len(order) != len(tabDefs) {
 		t.Fatalf("order has %d tabs, want %d", len(order), len(tabDefs))
 	}
-	if order[0].ID != "settings" || order[1].ID != "claude" {
+	if order[0].ID != "settings" || order[1].ID != "ai" {
 		t.Fatalf("custom order not honored: %s, %s", order[0].ID, order[1].ID)
 	}
 
 	m.moveTab(0, 1)
 	order = m.tabOrderDefs()
-	if order[0].ID != "claude" || order[1].ID != "settings" {
+	if order[0].ID != "ai" || order[1].ID != "settings" {
 		t.Fatalf("moveTab did not swap: %s, %s", order[0].ID, order[1].ID)
 	}
 
-	m.cfg.UI.HiddenTabs = []string{"claude", "nas"}
+	m.cfg.UI.HiddenTabs = []string{"ai", "nas"}
 	visible := m.visibleTabDefs()
 	sawSettings := false
 	for _, d := range visible {
-		if d.ID == "claude" || d.ID == "nas" {
+		if d.ID == "ai" || d.ID == "nas" {
 			t.Fatalf("hidden tab %s is visible", d.ID)
 		}
 		if d.ID == "settings" {
