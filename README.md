@@ -55,7 +55,7 @@ A private networking system designed for connecting and accessing Tash enabled d
 
 Provided **"AS IS"**, without warranties to the maximum extent permitted by applicable law. Use at your own risk.
 
-Also the other "nypr" contributor ISN'T ME it was an accidental Git commit so please just ignore it. 
+Also the other **"nypr"** contributor **ISN'T ME** it was an **accidental** Git commit so please just ignore it. 
 
 ## 📄 License
 Released under the PolyForm Noncommercial License 1.0.0. Commercial use is restricted by the license terms.
