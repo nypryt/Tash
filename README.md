@@ -41,10 +41,6 @@ A private networking system designed for connecting and accessing Tash enabled d
 | Termux | ✅ |
 | 32-bit Systems | ❌ |
 
-## 🚧 Development
-
-Tash is currently under development. Features, compatibility and functionality may change as the project evolves.
-
 ## ⚠️ Development Disclaimer
 
 **This project is vibe coded and heavily AI assisted.** The source code was not manually written line by line by the maintainer.
