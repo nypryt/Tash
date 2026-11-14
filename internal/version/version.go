@@ -5,7 +5,7 @@ import "runtime"
 
 var (
 	// Version is overwritten by -ldflags at build time.
-	Version = "1.0.0"
+	Version = "1.0"
 	// Commit is overwritten by -ldflags at build time.
 	Commit = "local"
 	// BuildDate is overwritten by -ldflags at build time.

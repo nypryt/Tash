@@ -4,10 +4,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -38,8 +42,7 @@ func main() {
 
 func run(args []string) int {
 	if len(args) == 0 {
-		printHelp()
-		return 0
+		return cmdDashboard(nil)
 	}
 	cmd := strings.ToLower(args[0])
 	rest := args[1:]
@@ -66,6 +69,8 @@ func run(args []string) int {
 		return cmdTheme(rest)
 	case "ai":
 		return cmdAI(rest)
+	case "update":
+		return cmdUpdate(rest)
 	case "doctor", "check", "diag":
 		return cmdDoctor(rest)
 	case "version", "-v", "--version":
@@ -974,6 +979,162 @@ func cmdAI(args []string) int {
 	}
 }
 
+func cmdUpdate(args []string) int {
+	action := "check"
+	if len(args) > 0 {
+		action = strings.ToLower(args[0])
+	}
+	fmt.Printf("Tash %s\n", version.Version)
+	fmt.Println("Checking for updates...")
+	
+	// Check GitHub releases for latest version
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/nypryt/Tash/releases/latest", nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update: failed to create request:", err)
+		return 1
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update: failed to check for updates:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "update: GitHub API returned %s\n", resp.Status)
+		return 1
+	}
+	
+	var release struct {
+		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
+		Body    string `json:"body"`
+		Assets  []struct {
+			Name        string `json:"name"`
+			BrowserURL  string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		fmt.Fprintln(os.Stderr, "update: failed to parse response:", err)
+		return 1
+	}
+	
+	latest := strings.TrimPrefix(release.TagName, "v")
+	current := strings.TrimPrefix(version.Version, "v")
+	
+	fmt.Printf("Current version: %s\n", version.Version)
+	fmt.Printf("Latest version:  v%s\n", latest)
+	
+	if latest == current {
+		fmt.Println("You are already on the latest version.")
+		return 0
+	}
+	
+	fmt.Printf("Update available: %s -> %s\n", version.Version, "v"+latest)
+	
+	if action == "check" {
+		fmt.Println("\nRun `tash update install` to download and install the latest version.")
+		return 0
+	}
+	
+	if action != "install" {
+		fmt.Fprintf(os.Stderr, "usage: tash update [check|install]\n")
+		return 2
+	}
+	
+	// Find the appropriate asset for this platform
+	assetName := fmt.Sprintf("Tash-Setup-%s-%s-%s", release.TagName, platformName(), platformArch())
+	if runtime.GOOS == "windows" {
+		assetName += ".exe"
+	} else if runtime.GOOS == "linux" {
+		assetName += ".elf"
+	} else if runtime.GOOS == "darwin" {
+		assetName += ".dmg"
+	}
+	
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if strings.Contains(asset.Name, assetName) {
+			downloadURL = asset.BrowserURL
+			break
+		}
+	}
+	
+	if downloadURL == "" {
+		fmt.Fprintf(os.Stderr, "update: no installer found for %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Println("Visit:", release.HTMLURL)
+		return 1
+	}
+	
+	fmt.Printf("Downloading %s...\n", assetName)
+	
+	req, err = http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update: failed to create download request:", err)
+		return 1
+	}
+	
+	resp, err = client.Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update: download failed:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "update: download returned %s\n", resp.Status)
+		return 1
+	}
+	
+	// Save to temp file
+	tmpFile, err := os.CreateTemp("", "tash-update-*.tmp")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update: failed to create temp file:", err)
+		return 1
+	}
+	tmpPath := tmpFile.Name()
+	
+	_, err = io.Copy(tmpFile, resp.Body)
+	tmpFile.Close()
+	if err != nil {
+		os.Remove(tmpPath)
+		fmt.Fprintln(os.Stderr, "update: failed to save installer:", err)
+		return 1
+	}
+	
+	// Make executable on Unix
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(tmpPath, 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, "update: failed to make installer executable:", err)
+			os.Remove(tmpPath)
+			return 1
+		}
+	}
+	
+	fmt.Println("Launching installer...")
+	cmd := exec.Command(tmpPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	os.Remove(tmpPath)
+	
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update: installer failed:", err)
+		return 1
+	}
+	
+	fmt.Println("Update complete! Restart Tash to use the new version.")
+	return 0
+}
+
 func cmdTheme(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: tash theme list | set <name> | new <name> [--from <theme>] | dir")
@@ -1179,8 +1340,10 @@ func signalContext() (context.Context, context.CancelFunc) {
 
 func platformName() string {
 	switch runtime.GOOS {
-	case "windows", "darwin":
-		return runtime.GOOS
+	case "windows":
+		return "windows"
+	case "darwin":
+		return "mac"
 	case "linux", "android":
 		return "linux"
 	default:
@@ -1188,7 +1351,25 @@ func platformName() string {
 	}
 }
 
-func platformArch() string { return runtime.GOARCH }
+func platformArch() string {
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH == "amd64" {
+			return "intel"
+		}
+		if runtime.GOARCH == "arm64" {
+			return "apple-silicon"
+		}
+		return runtime.GOARCH
+	case "windows", "linux":
+		if runtime.GOARCH == "amd64" {
+			return "x64"
+		}
+		return runtime.GOARCH
+	default:
+		return runtime.GOARCH
+	}
+}
 
 func versionGo() string { return runtime.Version() }
 
@@ -1293,6 +1474,8 @@ func printHelp() {
   tash theme list|set NAME|new NAME [--from BASE]|dir
   tash ai status|prompt <text>|launch [dir]
       Inspect or drive the AI integration.
+  tash update [check|install]
+      Check for updates and optionally install the latest version.
   tash doctor
   tash version
 

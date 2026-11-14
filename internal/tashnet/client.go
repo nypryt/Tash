@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tash/tash/internal/config"
 	"github.com/tash/tash/internal/tailscale"
 )
 
@@ -235,4 +236,34 @@ func Probe(ctx context.Context, baseURL string, timeout time.Duration) (HelloRes
 		return HelloResponse{}, fmt.Errorf("not a Tash main device")
 	}
 	return hello, nil
+}
+
+// GetConfig fetches the current config from the main device.
+func (c *Client) GetConfig(ctx context.Context) (*config.Config, error) {
+	var resp ConfigSyncResponse
+	err := c.do(ctx, http.MethodGet, "/v1/config/get", nil, &resp, true)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Config == nil {
+		return nil, fmt.Errorf("no config returned")
+	}
+	return resp.Config, nil
+}
+
+// PushConfig pushes a config to the main device (for main device to broadcast).
+func (c *Client) PushConfig(ctx context.Context, cfg *config.Config, targetDeviceID string) error {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	req := struct {
+		TargetDeviceID string          `json:"target_device_id,omitempty"`
+		Config         json.RawMessage `json:"config"`
+	}{
+		TargetDeviceID: targetDeviceID,
+		Config:         data,
+	}
+	var resp ConfigSyncResponse
+	return c.do(ctx, http.MethodPost, "/v1/config/push", req, &resp, true)
 }

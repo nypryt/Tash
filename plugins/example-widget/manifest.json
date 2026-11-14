@@ -1,0 +1,12 @@
+{
+  "name": "example-widget",
+  "version": "1.0.0",
+  "description": "Example widget showing system stats",
+  "author": "Tash Team",
+  "kind": "widget",
+  "entry_point": "widget.py",
+  "api_version": 1,
+  "config": {
+    "refresh_interval": 5
+  }
+}

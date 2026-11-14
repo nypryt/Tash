@@ -22,8 +22,6 @@ type apiClient struct {
 	http *http.Client
 }
 
-func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
-
 func newAPIClient(host string) (Client, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
@@ -222,6 +220,111 @@ func (c *apiClient) Logs(ctx context.Context, id string, tail int) (string, erro
 	if resp.StatusCode != http.StatusOK {
 		return string(data), fmt.Errorf("docker logs: %s", resp.Status)
 	}
+	return demuxLogs(data), nil
+}
+
+func (c *apiClient) LogsFollow(ctx context.Context, id string, tail int) (<-chan string, error) {
+	if tail <= 0 {
+		tail = 120
+	}
+	ch := make(chan string, 32)
+	path := "/containers/" + url.PathEscape(id) + "/logs?stdout=1&stderr=1&timestamps=1&follow=1&tail=" + strconv.Itoa(tail)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", version.UserAgent())
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		resp.Body.Close()
+		return nil, fmt.Errorf("docker logs: %s", string(data))
+	}
+	go func() {
+		defer close(ch)
+		defer resp.Body.Close()
+		buf := make([]byte, 8192)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				n, err := resp.Body.Read(buf)
+				if err != nil {
+					if err != io.EOF {
+						select {
+						case ch <- "error: " + err.Error():
+						case <-ctx.Done():
+						}
+					}
+					return
+				}
+				if n > 0 {
+					lines := demuxLogs(buf[:n])
+					if lines != "" {
+						for _, line := range strings.Split(lines, "\n") {
+							if line != "" {
+								select {
+								case ch <- line:
+								case <-ctx.Done():
+									return
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}()
+	return ch, nil
+}
+
+func (c *apiClient) Exec(ctx context.Context, id string, cmd []string) (string, error) {
+	execConfig := map[string]interface{}{
+		"AttachStdout": true,
+		"AttachStderr": true,
+		"Cmd":          cmd,
+		"Tty":          false,
+	}
+	body, _ := json.Marshal(execConfig)
+	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.base+"/containers/"+url.PathEscape(id)+"/exec", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("User-Agent", version.UserAgent())
+	resp, err := c.http.Do(createReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var execResp struct {
+		ID string `json:"Id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&execResp); err != nil {
+		return "", err
+	}
+	if execResp.ID == "" {
+		return "", fmt.Errorf("failed to create exec")
+	}
+	startBody, _ := json.Marshal(map[string]bool{"Detach": false, "Tty": false})
+	startReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.base+"/exec/"+execResp.ID+"/start", bytes.NewReader(startBody))
+	if err != nil {
+		return "", err
+	}
+	startReq.Header.Set("Content-Type", "application/json")
+	startReq.Header.Set("User-Agent", version.UserAgent())
+	startResp, err := c.http.Do(startReq)
+	if err != nil {
+		return "", err
+	}
+	defer startResp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(startResp.Body, 256<<10))
 	return demuxLogs(data), nil
 }
 

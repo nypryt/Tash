@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tash/tash/internal/config"
+	"github.com/tash/tash/internal/tailscale"
 	"github.com/tash/tash/internal/tashnet"
 	"github.com/tash/tash/internal/theme"
 	"github.com/tash/tash/internal/ui"
@@ -89,7 +90,11 @@ func (m *Model) viewSplash() string {
 }
 
 func versionString() string {
-	return version.Version
+	v := version.Version
+	if strings.HasPrefix(v, "v") {
+		v = v[1:]
+	}
+	return v
 }
 
 func (m *Model) viewDashboard() string {
@@ -199,14 +204,14 @@ func (m *Model) footerHints() [][2]string {
 	hints := [][2]string{{"1..9", "tabs"}, {m.keybind("refresh"), "refresh"}}
 	switch m.tab {
 	case TabTailscale:
-		hints = append(hints, [2]string{"↑↓", "peer"}, [2]string{"p", "ping"}, [2]string{"P", "ping all"})
+		hints = append(hints, [2]string{"↑↓", "peer"}, [2]string{"p", "ping"}, [2]string{"P", "ping all"}, [2]string{"s", "ssh"})
 	case TabPiHole:
 		hints = append(hints, [2]string{"a", "add block"}, [2]string{"A", "add allow"}, [2]string{"b", "blocking"}, [2]string{"g", "gravity"})
 	case TabDocker:
-		hints = append(hints, [2]string{"↑↓", "container"}, [2]string{"s/x", "start/stop"}, [2]string{"p/u", "pause/resume"}, [2]string{"R", "restart"}, [2]string{"D", "delete"}, [2]string{"l", "logs"})
+		hints = append(hints, [2]string{"↑↓", "container"}, [2]string{"s/x", "start/stop"}, [2]string{"p/u", "pause/resume"}, [2]string{"R", "restart"}, [2]string{"D", "delete"}, [2]string{"l", "logs"}, [2]string{"f", "follow logs"}, [2]string{"e", "exec command"})
 	case TabTashnet:
 		if m.cfg.Tashnet.Role == "main" {
-			hints = append(hints, [2]string{"a/d", "approve/deny"}, [2]string{"s", "show key"}, [2]string{"g", "regen key"}, [2]string{"t", "transfer"})
+			hints = append(hints, [2]string{"a/d", "approve/deny"}, [2]string{"s", "show key"}, [2]string{"g", "regen key"}, [2]string{"t", "transfer"}, [2]string{"x", "ssh to device"})
 		} else {
 			hints = append(hints, [2]string{"j", "rejoin help"})
 		}
@@ -294,19 +299,28 @@ func (m *Model) tailscaleCard(width int) string {
 			m.styles.Muted.Render("Tash will still run Pi-hole/NAS."),
 		}, "\n")
 	}
-	online := len(st.OnlinePeers())
+	filtered := m.filteredPeers()
+	online := 0
+	for _, p := range filtered {
+		if p.Online {
+			online++
+		}
+	}
 	state := st.BackendState
 	if !st.Running {
 		state = "stopped"
 	}
 	dot := m.styles.Dot(st.Running && st.Error == "")
-	line1 := dot + " " + m.styles.Text.Render(state) + m.styles.Muted.Render(fmt.Sprintf("  %d/%d peers", online, len(st.Peers)))
+	line1 := dot + " " + m.styles.Text.Render(state) + m.styles.Muted.Render(fmt.Sprintf("  %d/%d peers", online, len(filtered)))
 	self := "no tailscale IP"
 	if st.Self.IP != "" {
 		self = st.Self.IP
 	}
 	var spark string
-	for _, p := range st.OnlinePeers() {
+	for _, p := range filtered {
+		if !p.Online {
+			continue
+		}
 		key := peerKey(p)
 		if vals := m.pings[key]; len(vals) > 0 {
 			spark = m.styles.Sparkline(vals, minInt(width-2, 18)) + " " + m.styles.Muted.Render(p.DisplayName())
@@ -436,7 +450,14 @@ func (m *Model) compactOverview(w int) string {
 		if !m.ts.Running {
 			state = "stopped"
 		}
-		lines = append(lines, m.kvLine("state", fmt.Sprintf("%s · %d online peers", state, len(m.ts.OnlinePeers())), w))
+		filtered := m.filteredPeers()
+		online := 0
+		for _, p := range filtered {
+			if p.Online {
+				online++
+			}
+		}
+		lines = append(lines, m.kvLine("state", fmt.Sprintf("%s · %d online peers", state, online), w))
 	} else {
 		lines = append(lines, m.styles.Muted.Render("CLI unavailable — use the Tailscale Android app on Termux"))
 	}
@@ -523,16 +544,18 @@ func (m *Model) viewTailscale() string {
 			content = append(content, m.styles.Danger.Render("! "+truncate(st.Error, w-6)))
 		}
 		content = append(content, "", m.styles.SectionTitle("PEERS", w))
-		if len(st.Peers) == 0 {
-			content = append(content, m.styles.Muted.Render("no peers found"))
+		
+		peers := m.filteredPeers()
+		if len(peers) == 0 {
+			content = append(content, m.styles.Muted.Render("no peers match current filter"))
 		}
 		rows := maxInt(h-10, 3)
 		start := 0
 		if m.peerIdx >= rows {
 			start = m.peerIdx - rows + 1
 		}
-		for i := start; i < len(st.Peers) && i < start+rows; i++ {
-			p := st.Peers[i]
+		for i := start; i < len(peers) && i < start+rows; i++ {
+			p := peers[i]
 			sel := "  "
 			if i == m.peerIdx {
 				sel = m.styles.Primary.Render("▸ ")
@@ -554,11 +577,36 @@ func (m *Model) viewTailscale() string {
 			content = append(content, fmt.Sprintf("%s%s %s %s %s %s", sel, icon,
 				m.styles.Text.Render(name), m.styles.Muted.Render(ip), lat, spark))
 		}
-		if len(st.Peers) > 0 {
-			content = append(content, "", m.styles.Muted.Render("p ping selected · P ping all online · ↑↓ select"))
+		if len(peers) > 0 {
+			content = append(content, "", m.styles.Muted.Render("p ping selected · P ping all online · s ssh to selected · ↑↓ select"))
 		}
 	}
 	return m.styles.Panel("TAILSCALE // TAILNET LATENCY", strings.Join(content, "\n"), w, h, true)
+}
+
+func (m *Model) filteredPeers() []tailscale.Peer {
+	mode := m.cfg.Tailscale.DisplayMode
+	if mode == "" {
+		mode = "all"
+	}
+	switch mode {
+	case "active":
+		return m.ts.OnlinePeers()
+	case "custom":
+		customSet := make(map[string]bool, len(m.cfg.Tailscale.CustomPeerIDs))
+		for _, id := range m.cfg.Tailscale.CustomPeerIDs {
+			customSet[id] = true
+		}
+		var filtered []tailscale.Peer
+		for _, p := range m.ts.Peers {
+			if customSet[p.IP] || customSet[p.Name] || customSet[p.TailscaleName] {
+				filtered = append(filtered, p)
+			}
+		}
+		return filtered
+	default: // "all"
+		return m.ts.Peers
+	}
 }
 
 func (m *Model) viewPiHole() string {
@@ -1063,6 +1111,8 @@ func (m *Model) settingsRows() []settingRow {
 	commandState := firstNonEmpty(m.cfg.AI.Command, "claude")
 	baseURLState := firstNonEmpty(m.cfg.AI.BaseURL, "(default)")
 	hidden := len(m.cfg.UI.HiddenTabs)
+	installDir := firstNonEmpty(config.Dir(), "(default)")
+	updateState := "check for updates"
 	rows := []settingRow{
 		{"Theme", m.currentThemeName(), "visual matrix and custom themes"},
 		{"AI integration", aiState, "enable or disable in-app AI chat"},
@@ -1075,6 +1125,12 @@ func (m *Model) settingsRows() []settingRow {
 		{"AI permission", firstNonEmpty(m.cfg.AI.PermissionMode, "default"), "default, acceptEdits, plan, bypassPermissions"},
 		{"NAS password", m.nasPassword(), "WebDAV Basic auth password"},
 		{"NAS root", m.cfg.NAS.Root, "folder exposed over WebDAV"},
+		{"NAS port", fmt.Sprintf("%d", m.cfg.NAS.Port), "WebDAV server port (1024-65535)"},
+		{"Tailscale display", firstNonEmpty(m.cfg.Tailscale.DisplayMode, "all"), "all, active, or custom peer list"},
+		{"Tailscale ping interval", fmt.Sprintf("%ds", m.cfg.Tailscale.IntervalSec), "seconds between pings (1-60)"},
+		{"Tailscale max peers", fmt.Sprintf("%d", m.cfg.Tailscale.MaxPeers), "max peers to ping per interval (1-50)"},
+		{"Install directory", installDir, "where Tash is installed (requires reinstall)"},
+		{"Check for updates", updateState, "check GitHub for latest version"},
 		{"Refresh key", m.keybind("refresh"), "global refresh binding"},
 		{"Help key", m.keybind("help"), "opens About / help"},
 		{"Quit key", m.keybind("quit"), "leave the dashboard"},
@@ -1084,6 +1140,7 @@ func (m *Model) settingsRows() []settingRow {
 		{"Deck layout", firstNonEmpty(m.cfg.UI.DeckLayout, "auto"), "auto, cards, or compact overview"},
 		{"Tab position", firstNonEmpty(m.cfg.UI.TabPosition, "top"), "top or bottom"},
 		{"About Tash", "v" + versionString() + " · Nypr", "version, help, paths, copyright"},
+		{"Reset to Defaults", "confirm to reset all settings", "resets UI, AI, NAS, keybinds, tabs to factory defaults"},
 	}
 	return rows
 }
@@ -1497,6 +1554,166 @@ func (m *Model) setupContent() (string, []string) {
 	}
 
 	switch s.stage {
+	case stageTOS:
+		lines := []string{logo, "",
+			m.styles.Accent.Render("SOFTWARE LICENSE AGREEMENT & TERMS OF USE"),
+			"",
+		}
+		tos := `# NYPR STUDIOZ
+## SOFTWARE LICENSE AGREEMENT & TERMS OF USE
+
+**Software:** Tash  
+**Developer:** Nypr Studioz  
+**Copyright:** © 2026 Nypr. All rights reserved.  
+**License Version:** 1.0
+
+---
+
+### 1. Acceptance of Terms
+
+By installing, accessing, launching, or using Tash, you acknowledge that you have read, understood, and agreed to this Software License Agreement and its Terms of Use.
+
+If you do not agree to these terms, you must not install, access, or use Tash.
+
+### 2. Copyright and Ownership
+
+Tash is an independently developed software project owned by Nypr Studioz.
+
+**© 2026 Nypr. All rights reserved.**
+
+Unless explicitly permitted in writing by Nypr Studioz, you may not:
+
+- Redistribute, resell, or commercially exploit Tash.
+- Claim ownership of the original software.
+- Remove or modify copyright notices.
+- Publish modified versions as official Nypr Studioz releases.
+- Impersonate Nypr Studioz or its developer.
+- Copy or reproduce proprietary components outside the permissions granted by this agreement.
+
+All original source code, interface designs, documentation, branding, and proprietary materials remain the intellectual property of their respective owners.
+
+### 3. Independent Project and No Affiliation
+
+Tash is independently developed and maintained by Nypr Studioz.
+
+Tash is NOT affiliated with, sponsored by, endorsed by, maintained by, or officially connected to:
+
+- Docker
+- Tailscale
+- OpenAI
+- Anthropic or Claude
+- Pi-hole
+- Microsoft
+- Any other third-party company, service, platform, or integration provider.
+
+All third-party names, trademarks, logos, products, and services belong to their respective owners.
+
+References to these products are solely for identification, compatibility, and integration purposes.
+
+### 4. Third-Party Integrations
+
+Tash may provide integrations with external applications, APIs, services, and software.
+
+These integrations do not establish any partnership, sponsorship, ownership, endorsement, or official relationship between Nypr Studioz and the respective providers.
+
+Nypr Studioz is not responsible for:
+
+- Third-party service outages or interruptions.
+- API changes, restrictions, or discontinuation.
+- External account suspensions.
+- Third-party pricing changes.
+- Security incidents originating from external services.
+- Data loss caused by external platforms.
+
+Users are responsible for complying with the applicable terms and policies of services they connect to Tash.
+
+### 5. Acceptable Use
+
+Users agree not to:
+
+- Use Tash for unlawful activities.
+- Use the software to compromise systems or networks.
+- Distribute malicious modifications under the Nypr Studioz name.
+- Misrepresent the software or its capabilities.
+- Circumvent applicable licensing restrictions.
+- Infringe upon the intellectual property rights of others.
+
+### 6. Software Disclaimer
+
+Tash is provided on an "AS IS" and "AS AVAILABLE" basis, to the maximum extent permitted by applicable law.
+
+Nypr Studioz does not guarantee:
+
+- Uninterrupted operation.
+- Compatibility with every operating system or device.
+- Permanent availability of integrations.
+- Freedom from bugs, errors, or technical issues.
+- Compatibility with future third-party updates.
+
+Users are responsible for maintaining appropriate backups and reviewing the consequences of actions performed through the software.
+
+### 7. Limitation of Liability
+
+To the maximum extent permitted by applicable law, Nypr Studioz and its developer shall not be liable for indirect, incidental, special, or consequential damages arising from the use or inability to use Tash.
+
+Nothing in this agreement excludes liability that cannot legally be excluded.
+
+### 8. Updates and Modifications
+
+Nypr Studioz reserves the right to:
+
+- Update or modify Tash.
+- Introduce, modify, or remove features.
+- Change supported integrations.
+- Discontinue development or distribution.
+
+Updated versions may include revised license terms. Any revised terms will be presented for acceptance where required by applicable law.
+
+### 9. Termination
+
+Nypr Studioz may terminate the permission granted under this agreement if a user materially violates its terms, subject to applicable law.
+
+Upon termination, the user must discontinue use of the software and cease any distribution that is not otherwise legally permitted.
+
+### 10. License Grant
+
+Nypr Studioz grants the user a limited, personal, non-exclusive, non-transferable, and revocable license to use Tash, subject to this agreement.
+
+This license does not transfer copyright, ownership, or intellectual property rights to the user.
+
+### 11. Governing Law
+
+This agreement shall be interpreted in accordance with the applicable laws of Thailand, subject to mandatory consumer protection and other applicable legal requirements.
+
+### 12. Entire Agreement
+
+This agreement represents the terms governing the user's permission to use Tash.
+
+If any provision is found unenforceable, the remaining provisions shall continue to apply to the extent permitted by law.
+
+---
+
+## COPYRIGHT NOTICE
+
+**Tash**
+
+Developed and maintained by Nypr Studioz.
+
+**© 2026 Nypr. All rights reserved.**
+
+Tash is an independent software project. All third-party integrations and referenced services remain the property of their respective owners.`
+		lines = append(lines, wrap(tos, m.styles.Text)...)
+		lines = append(lines, "",
+			m.styles.SectionTitle("ACCEPTANCE REQUIRED", w),
+			"",
+			m.styles.Primary.Render("  [1] I have read and agree to the Software License Agreement and Terms of Use. I acknowledge the ownership, copyright, limitations, and third-party disclaimers described in this agreement."),
+			"",
+			m.styles.Danger.Render("  [2] Decline and exit"),
+			"",
+		)
+		lines = append(lines, errLine()...)
+		return "00 · TERMS", lines
+
 	case stageWelcome:
 		lines := []string{logo, "",
 			m.styles.Accent.Render("WELCOME, OPERATOR."),
@@ -1827,6 +2044,26 @@ func (m *Model) modalView() string {
 		body += m.styles.Warning.Render(md.prompt)
 	case modalKindInfo:
 		// body only
+	case modalKindCommandPalette:
+		cp := md.cmdPalette
+		body += m.styles.Text.Render("Search: ") + m.styles.Accent.Render(cp.query) + "█\n"
+		body += m.styles.Muted.Render(fmt.Sprintf("  %d commands", len(cp.filtered))) + "\n\n"
+		rows := maxInt(m.bodyHeight()-12, 5)
+		start := 0
+		if cp.cursor >= rows {
+			start = cp.cursor - rows + 1
+		}
+		for i := start; i < len(cp.filtered) && i < start+rows; i++ {
+			item := cp.filtered[i]
+			sel := "  "
+			if i == cp.cursor {
+				sel = m.styles.Primary.Render("▸ ")
+			}
+			body += fmt.Sprintf("%s%s  %s  %s\n", sel,
+				m.styles.Text.Render(item.title),
+				m.styles.Muted.Render("("+item.keys+")"),
+				m.styles.Muted.Render(item.description))
+		}
 	}
 	if md.require != "" {
 		body += "\n\n" + m.styles.Danger.Render("Type "+md.require+" to confirm:") + "\n" + m.modalInputRender()
@@ -1855,6 +2092,8 @@ func (m *Model) modalView() string {
 		hint = "enter / y confirm · esc cancel"
 	case modalKindInput:
 		hint = "enter submit · esc cancel"
+	case modalKindCommandPalette:
+		hint = "↑↓ select · enter execute · esc close · type to filter"
 	}
 	if md.require != "" {
 		hint = "type the word, then enter · esc cancel"

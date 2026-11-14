@@ -50,9 +50,11 @@ type DockerConfig struct {
 
 // TailscaleConfig controls the peer ping loop.
 type TailscaleConfig struct {
-	PingEnabled bool `json:"ping_enabled"`
-	IntervalSec int  `json:"interval_seconds"`
-	MaxPeers    int  `json:"max_peers"`
+	PingEnabled    bool     `json:"ping_enabled"`
+	IntervalSec    int      `json:"interval_seconds"`
+	MaxPeers       int      `json:"max_peers"`
+	DisplayMode    string   `json:"display_mode,omitempty"`    // all, active, custom
+	CustomPeerIDs  []string `json:"custom_peer_ids,omitempty"` // peer IDs to show in custom mode
 }
 
 // UIConfig holds cosmetic settings, tab layout, and key bindings.
@@ -210,7 +212,7 @@ func Default() Config {
 			Port:      8788,
 		},
 		Docker:    DockerConfig{Mode: "cli", Host: DefaultDockerHost()},
-		Tailscale: TailscaleConfig{PingEnabled: true, IntervalSec: 10, MaxPeers: 5},
+		Tailscale: TailscaleConfig{PingEnabled: true, IntervalSec: 10, MaxPeers: 5, DisplayMode: "all"},
 		PiHole:    PiHoleConfig{RefreshSec: 5},
 		AI: AIConfig{
 			Enabled:  true,
@@ -289,11 +291,14 @@ func (c *Config) Normalize() {
 	if c.Docker.Host == "" {
 		c.Docker.Host = def.Docker.Host
 	}
-	if c.Tailscale.IntervalSec < 2 {
+	if c.Tailscale.IntervalSec < 1 {
 		c.Tailscale.IntervalSec = 10
 	}
 	if c.Tailscale.MaxPeers < 1 || c.Tailscale.MaxPeers > 50 {
 		c.Tailscale.MaxPeers = 5
+	}
+	if c.Tailscale.DisplayMode != "all" && c.Tailscale.DisplayMode != "active" && c.Tailscale.DisplayMode != "custom" {
+		c.Tailscale.DisplayMode = "all"
 	}
 	if c.PiHole.RefreshSec < 2 {
 		c.PiHole.RefreshSec = 5
@@ -318,6 +323,32 @@ func (c *Config) Normalize() {
 // normalizeUITabs guarantees every tab has one unique number key and that the
 // settings tab can never be hidden (otherwise it could not be restored).
 func (c *Config) normalizeUITabs() {
+	// Migrate old "claude" tab ID to "ai" (v1.0+) - preserve position
+	for i, id := range c.UI.TabOrder {
+		if id == "claude" {
+			c.UI.TabOrder[i] = "ai"
+		}
+	}
+	// Migrate hidden_tabs: remove "claude", don't auto-hide "ai"
+	newHidden := make([]string, 0, len(c.UI.HiddenTabs))
+	for _, h := range c.UI.HiddenTabs {
+		if h == "claude" {
+			continue // drop old claude from hidden
+		}
+		if h == "ai" {
+			continue // don't auto-hide ai
+		}
+		newHidden = append(newHidden, h)
+	}
+	c.UI.HiddenTabs = newHidden
+	// Migrate tab_numbers: claude -> ai
+	if num, ok := c.UI.TabNumbers["claude"]; ok {
+		delete(c.UI.TabNumbers, "claude")
+		if _, exists := c.UI.TabNumbers["ai"]; !exists {
+			c.UI.TabNumbers["ai"] = num
+		}
+	}
+
 	order := make([]string, 0, len(TabIDs))
 	seenOrder := map[string]bool{}
 	for _, id := range c.UI.TabOrder {

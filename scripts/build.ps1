@@ -76,6 +76,7 @@ function InstallerFileName([string]$version, [string]$osName, [string]$arch) {
     switch ($osName) {
         "windows" { return $base + ".exe" }
         "linux" { return $base + ".elf" }
+        "darwin" { return $base + ".dmg" }
         default { return $base }
     }
 }
@@ -83,6 +84,8 @@ function InstallerFileName([string]$version, [string]$osName, [string]$arch) {
 function PortableFileName([string]$version, [string]$osName, [string]$arch) {
     $base = "Tash-Portable-$version-$(FriendlyOS $osName)-$(FriendlyArch $osName $arch)"
     if ($osName -eq "windows") { return $base + ".exe" }
+    if ($osName -eq "linux") { return $base + ".elf" }
+    if ($osName -eq "darwin") { return $base + ".dmg" }
     return $base
 }
 

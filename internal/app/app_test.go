@@ -22,6 +22,12 @@ func TestSetupViewRenders(t *testing.T) {
 		t.Fatalf("expected setup screen, got %v", m.screen)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 34})
+	// First screen is TOS agreement - accept it
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	if cmd != nil {
+		cmd()
+	}
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 34})
 	view := m.View()
 	if !strings.Contains(view, "WELCOME, OPERATOR") {
 		t.Fatalf("setup view missing welcome copy:\n%s", view)
@@ -76,7 +82,7 @@ func TestClientDashboardTabsRender(t *testing.T) {
 }
 
 func TestAIChatSendsAndEdits(t *testing.T) {
-	m := &Model{cfg: config.Default(), screen: ScreenDashboard, tab: TabAI}
+	m := &Model{cfg: config.Default(), screen: ScreenDashboard, tab: TabAI, aiFocused: true}
 	key := func(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
 	space := tea.KeyMsg{Type: tea.KeySpace}
 	backspace := tea.KeyMsg{Type: tea.KeyBackspace}
@@ -180,6 +186,12 @@ func TestNarrowTerminalRenders(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 52, Height: 18})
+	// Accept TOS
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	if cmd != nil {
+		cmd()
+	}
+	m.Update(tea.WindowSizeMsg{Width: 52, Height: 18})
 	if view := m.View(); !strings.Contains(view, "WELCOME") {
 		t.Fatalf("narrow setup view missing welcome copy:\n%s", view)
 	}
@@ -233,6 +245,13 @@ func TestMainSetupFlowCreatesConfig(t *testing.T) {
 	}
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 
+	// Accept TOS agreement
+	press(runes("1"))
+	if m.setup.stage != stageWelcome {
+		t.Fatalf("after TOS acceptance stage = %v", m.setup.stage)
+	}
+
+	// Choose Main Device
 	press(runes("1"))
 	if m.setup.stage != stageMainSecret {
 		t.Fatalf("after main choice stage = %v", m.setup.stage)

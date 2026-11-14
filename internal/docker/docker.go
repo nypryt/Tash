@@ -2,8 +2,11 @@
 package docker
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -46,6 +49,8 @@ type Client interface {
 	Fetch(ctx context.Context) Snapshot
 	Action(ctx context.Context, id, action string) error
 	Logs(ctx context.Context, id string, tail int) (string, error)
+	LogsFollow(ctx context.Context, id string, tail int) (<-chan string, error)
+	Exec(ctx context.Context, id string, cmd []string) (string, error)
 	Mode() string
 }
 
@@ -90,6 +95,12 @@ func Modes() []ModeInfo {
 			Tradeoffs: "can be enabled later with `tash docker use cli|socket`",
 		},
 	}
+}
+
+func jsonUnmarshal(b []byte, v any) error {
+	var err error
+	json.Unmarshal(b, v)
+	return err
 }
 
 type cliClient struct{}
@@ -238,6 +249,55 @@ func (c *cliClient) Logs(ctx context.Context, id string, tail int) (string, erro
 	out, err := exec.CommandContext(ctx, bin, "logs", "--tail", strconv.Itoa(tail), id).CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("docker logs: %w", err)
+	}
+	return string(out), nil
+}
+
+func (c *cliClient) LogsFollow(ctx context.Context, id string, tail int) (<-chan string, error) {
+	bin, err := dockerBin()
+	if err != nil {
+		return nil, err
+	}
+	if tail <= 0 {
+		tail = 120
+	}
+	ch := make(chan string, 32)
+	cmd := exec.CommandContext(ctx, bin, "logs", "--tail", strconv.Itoa(tail), "-f", id)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	go func() {
+		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+		for scanner.Scan() {
+			select {
+			case ch <- scanner.Text():
+			case <-ctx.Done():
+				return
+			}
+		}
+		close(ch)
+		cmd.Wait()
+	}()
+	return ch, nil
+}
+
+func (c *cliClient) Exec(ctx context.Context, id string, cmd []string) (string, error) {
+	bin, err := dockerBin()
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"exec", "-i", id}, cmd...)
+	out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("docker exec: %w", err)
 	}
 	return string(out), nil
 }

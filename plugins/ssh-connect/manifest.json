@@ -1,0 +1,10 @@
+{
+  "name": "ssh-connect",
+  "version": "1.0.0",
+  "description": "Quick SSH to Tashnet and Tailscale devices",
+  "author": "Tash Team",
+  "kind": "command",
+  "entry_point": "ssh-connect",
+  "api_version": 1,
+  "config": {}
+}

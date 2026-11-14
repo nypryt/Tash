@@ -3,7 +3,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +19,7 @@ import (
 	vim "github.com/tash/tash/internal/editor"
 	"github.com/tash/tash/internal/nas"
 	"github.com/tash/tash/internal/pihole"
+	"github.com/tash/tash/internal/plugin"
 	"github.com/tash/tash/internal/sysinfo"
 	"github.com/tash/tash/internal/tailscale"
 	"github.com/tash/tash/internal/tashnet"
@@ -155,6 +160,7 @@ type Model struct {
 	aiSession string
 	aiChatErr string
 	aiGen     int
+	aiFocused bool
 	settings      settingsMode
 	settingsIdx   int
 	tabCfgIdx     int
@@ -171,6 +177,9 @@ type Model struct {
 
 	startErr string
 	quitting bool
+
+	pluginMgr *plugin.Manager
+	widgets   []plugin.WidgetSpec
 }
 
 // New builds the application, loading configuration when it exists.
@@ -263,6 +272,156 @@ func (m *Model) startServices() {
 	}
 	if m.cfg.LastEditorFile != "" && m.editor.Path() == "" {
 		_ = m.editor.Load(m.cfg.LastEditorFile)
+	}
+
+	// Initialize plugin manager
+	m.pluginMgr = plugin.NewManager("")
+	api := &plugin.PluginAPI{
+		GetConfig: func(key string) (string, error) {
+			// TODO: implement config access
+			return "", nil
+		},
+		SetConfig: func(key, value string) error {
+			if m.store == nil {
+				return fmt.Errorf("no store")
+			}
+			return m.store.Update(func(c *config.Config) error {
+				// Simple key-value store in config
+				return nil
+			})
+		},
+		ShowToast: m.setToast,
+		ShowModal: func(title, body string) {
+			m.modal = infoModal(title, body)
+		},
+		AddTab: func(id, name string, kind plugin.PluginKind) error {
+			// TODO: implement dynamic tab addition
+			return nil
+		},
+		RemoveTab: func(id string) error {
+			return nil
+		},
+		AddWidget: func(widget plugin.WidgetSpec) error {
+			// TODO: implement widget addition
+			return nil
+		},
+		RemoveWidget: func(id string) error {
+			return nil
+		},
+		GetDevices: func() []config.Device {
+			devices := make([]config.Device, 0, len(m.cfg.Tashnet.Devices))
+			for _, d := range m.cfg.Tashnet.Devices {
+				devices = append(devices, d)
+			}
+			return devices
+		},
+		GetPeers: func() []string {
+			peers := make([]string, 0, len(m.ts.Peers))
+			for _, p := range m.ts.Peers {
+				peers = append(peers, p.IP)
+			}
+			return peers
+		},
+		SendCommand: func(deviceID, command string) (string, error) {
+			// TODO: implement remote command execution
+			return "", fmt.Errorf("not implemented")
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			return os.ReadFile(path)
+		},
+		WriteFile: func(path string, data []byte) error {
+			return os.WriteFile(path, data, 0o644)
+		},
+		ListFiles: func(path string) ([]string, error) {
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				return nil, err
+			}
+			names := make([]string, len(entries))
+			for i, e := range entries {
+				names[i] = e.Name()
+			}
+			return names, nil
+		},
+		ListContainers: func() ([]plugin.ContainerInfo, error) {
+			if m.dockerClient == nil {
+				return nil, fmt.Errorf("docker not configured")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			snap := m.dockerClient.Fetch(ctx)
+			containers := make([]plugin.ContainerInfo, len(snap.Containers))
+			for i, c := range snap.Containers {
+				containers[i] = plugin.ContainerInfo{
+					ID:      c.ID,
+					Name:    c.Name,
+					Image:   c.Image,
+					State:   c.State,
+					Status:  c.Status,
+					Ports:   c.Ports,
+					Running: c.Running,
+				}
+			}
+			return containers, nil
+		},
+		ContainerAction: func(id, action string) error {
+			if m.dockerClient == nil {
+				return fmt.Errorf("docker not configured")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return m.dockerClient.Action(ctx, id, action)
+		},
+		GetPiHoleStats: func() (map[string]interface{}, error) {
+			if m.piholeClient == nil {
+				return nil, fmt.Errorf("pihole not configured")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			snap := m.piholeClient.Fetch(ctx)
+			return map[string]interface{}{
+				"queries":        snap.Summary.TotalQueries,
+				"blocked":        snap.Summary.Blocked,
+				"percent_blocked": snap.Summary.PercentBlocked,
+				"gravity_domains": snap.Summary.GravityDomains,
+				"active_clients": snap.Summary.ActiveClients,
+				"blocking":       snap.Blocking,
+			}, nil
+		},
+		PiHoleAction: func(action string) error {
+			if m.piholeClient == nil {
+				return fmt.Errorf("pihole not configured")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			switch action {
+			case "enable":
+				return m.piholeClient.SetBlocking(ctx, true)
+			case "disable":
+				return m.piholeClient.SetBlocking(ctx, false)
+			case "gravity":
+				_, err := m.piholeClient.RunGravity(ctx)
+				return err
+			}
+			return fmt.Errorf("unknown action: %s", action)
+		},
+		OnEvent: func(event string, handler func(json.RawMessage)) {
+			m.pluginMgr.Subscribe(event, handler)
+		},
+		EmitEvent: func(event string, data interface{}) error {
+			_ = data
+			m.pluginMgr.Subscribe(event, func(d json.RawMessage) {
+				// This is a hack - in reality we'd have a proper event bus
+			})
+			return nil
+		},
+		Log: func(level, message string) {
+			m.setToast(fmt.Sprintf("[%s] %s", level, message), level == "error")
+		},
+	}
+	m.pluginMgr.SetAPI(api)
+	if err := m.pluginMgr.LoadAll(); err != nil {
+		m.setToast("plugins: "+err.Error(), true)
 	}
 }
 
@@ -472,6 +631,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.refreshCmd()
 
+	case toastMsg:
+		m.setToast(msg.text, msg.err)
+		return m, nil
+
 	case dockerLogsMsg:
 		if msg.err != nil {
 			m.setToast("logs failed: "+msg.err.Error(), true)
@@ -617,6 +780,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case m.keybind("help"):
 		m.modal = infoModal("ABOUT TASH // OPERATOR MANUAL", m.aboutBody())
+		return m, nil
+	case "ctrl+p":
+		m.modal = commandPaletteModal(m)
 		return m, nil
 	case m.keybind("refresh"):
 		m.setToast("refreshing…", false)
@@ -971,6 +1137,53 @@ func (m *Model) aiDetectCmd() tea.Cmd {
 	}
 }
 
+func (m *Model) checkUpdateCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/nypryt/Tash/releases/latest", nil)
+		if err != nil {
+			return toastMsg{text: "update check failed: " + err.Error(), err: true}
+		}
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return toastMsg{text: "update check failed: " + err.Error(), err: true}
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode != http.StatusOK {
+			return toastMsg{text: fmt.Sprintf("update check failed: GitHub API returned %s", resp.Status), err: true}
+		}
+		
+		var release struct {
+			TagName string `json:"tag_name"`
+			HTMLURL string `json:"html_url"`
+			Body    string `json:"body"`
+			Assets  []struct {
+				Name        string `json:"name"`
+				BrowserURL  string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			return toastMsg{text: "update check failed: " + err.Error(), err: true}
+		}
+		
+		latest := strings.TrimPrefix(release.TagName, "v")
+		current := strings.TrimPrefix(version.Version, "v")
+		
+		if latest == current {
+			return toastMsg{text: "You are on the latest version (" + version.Version + ")", err: false}
+		}
+		
+		return toastMsg{text: fmt.Sprintf("Update available: %s -> v%s (check release page)", version.Version, latest), err: false}
+	}
+}
+
 func (m *Model) aiChatCmd(prompt, dir, sessionID string, gen int) tea.Cmd {
 	cfg := m.cfg.AI
 	return func() tea.Msg {
@@ -1058,6 +1271,12 @@ type actionMsg struct {
 	text string
 	err  error
 }
+
+type toastMsg struct {
+	text string
+	err  bool
+}
+
 type claudeStatusMsg struct{ status cc.Status }
 type claudeChatMsg struct {
 	text      string

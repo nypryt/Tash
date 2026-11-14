@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,19 +25,58 @@ const (
 	modalKindInput
 	modalKindConfirm
 	modalKindInfo
+	modalKindCommandPalette
 )
 
 type modal struct {
-	kind    modalKind
-	title   string
-	body    string
-	prompt  string
-	value   string
-	cursor  int
-	secret  bool
-	require string
-	action  string
-	scroll  int
+	kind       modalKind
+	title      string
+	body       string
+	prompt     string
+	value      string
+	cursor     int
+	secret     bool
+	require    string
+	action     string
+	scroll     int
+	cmdPalette *commandPaletteState
+}
+
+type commandPaletteState struct {
+	query      string
+	cursor     int
+	filtered   []commandPaletteItem
+	allItems   []commandPaletteItem
+	cursorPos  int
+}
+
+type commandPaletteItem struct {
+	id          string
+	title       string
+	description string
+	action      func(*Model) (tea.Model, tea.Cmd)
+	keys        string
+	category    string
+}
+
+func (cp *commandPaletteState) filter(query string) {
+	cp.query = query
+	if query == "" {
+		cp.filtered = cp.allItems
+		cp.cursor = 0
+		return
+	}
+	q := strings.ToLower(query)
+	cp.filtered = cp.filtered[:0]
+	for _, item := range cp.allItems {
+		if strings.Contains(strings.ToLower(item.title), q) ||
+			strings.Contains(strings.ToLower(item.description), q) ||
+			strings.Contains(strings.ToLower(item.keys), q) ||
+			strings.Contains(strings.ToLower(item.category), q) {
+			cp.filtered = append(cp.filtered, item)
+		}
+	}
+	cp.cursor = 0
 }
 
 func (md modal) active() bool { return md.kind != modalKindNone }
@@ -57,6 +98,73 @@ func infoModal(title, body string) modal {
 
 func dangerModal(title, body, require, action string) modal {
 	return modal{kind: modalKindInput, title: title, body: body, require: require, action: action}
+}
+
+func commandPaletteModal(m *Model) modal {
+	items := m.buildCommandPaletteItems()
+	return modal{
+		kind: modalKindCommandPalette,
+		title: "COMMAND PALETTE",
+		cmdPalette: &commandPaletteState{
+			query:    "",
+			filtered: items,
+			allItems: items,
+			cursor:   0,
+		},
+	}
+}
+
+func (m *Model) buildCommandPaletteItems() []commandPaletteItem {
+	items := []commandPaletteItem{
+		// Tabs
+		{"tab-overview", "Go to Overview", "Switch to overview tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabOverview); return m, nil }, "1", "Tabs"},
+		{"tab-tailscale", "Go to Tailscale", "Switch to Tailscale tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabTailscale); return m, nil }, "2", "Tabs"},
+		{"tab-pihole", "Go to Pi-hole", "Switch to Pi-hole tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabPiHole); return m, nil }, "3", "Tabs"},
+		{"tab-docker", "Go to Docker", "Switch to Docker tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabDocker); return m, nil }, "4", "Tabs"},
+		{"tab-tashnet", "Go to Tashnet", "Switch to Tashnet tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabTashnet); return m, nil }, "5", "Tabs"},
+		{"tab-nas", "Go to NAS", "Switch to NAS tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabNAS); return m, nil }, "6", "Tabs"},
+		{"tab-editor", "Go to Editor", "Switch to Editor tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabEditor); return m, nil }, "7", "Tabs"},
+		{"tab-ai", "Go to AI", "Switch to AI tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabAI); return m, nil }, "8", "Tabs"},
+		{"tab-settings", "Go to Settings", "Switch to Settings tab", func(m *Model) (tea.Model, tea.Cmd) { m.setTab(TabSettings); return m, nil }, "9", "Tabs"},
+		// Actions
+		{"refresh", "Refresh All", "Refresh all services", func(m *Model) (tea.Model, tea.Cmd) { m.setToast("refreshing…", false); return m, m.refreshCmd() }, "r", "Actions"},
+		{"ssh-tailscale", "SSH to Tailscale Peer", "SSH to selected Tailscale peer", func(m *Model) (tea.Model, tea.Cmd) { 
+			if m.tab == TabTailscale {
+				peers := m.filteredPeers()
+				if len(peers) > 0 && m.peerIdx < len(peers) && peers[m.peerIdx].IP != "" {
+					return m.sshToPeer(peers[m.peerIdx].IP)
+				}
+			}
+			m.setToast("no peer selected", true)
+			return m, nil 
+		}, "s", "Actions"},
+		{"ssh-tashnet", "SSH to Tashnet Device", "SSH to selected Tashnet device", func(m *Model) (tea.Model, tea.Cmd) { 
+			if m.tab == TabTashnet && m.cfg.Tashnet.Role == "main" {
+				devices := sortedDevices(m.cfg.Tashnet.Devices)
+				if len(devices) > 0 && m.devIdx < len(devices) && devices[m.devIdx].IP != "" {
+					return m.sshToPeer(devices[m.devIdx].IP)
+				}
+			}
+			m.setToast("no device selected", true)
+			return m, nil 
+		}, "x", "Actions"},
+		// Settings shortcuts
+		{"settings-theme", "Change Theme", "Open theme selector", func(m *Model) (tea.Model, tea.Cmd) { m.settings = settingsThemes; m.syncThemeIndex(); m.setTab(TabSettings); return m, nil }, "t", "Settings"},
+		{"settings-ai", "Toggle AI", "Enable/disable AI integration", func(m *Model) (tea.Model, tea.Cmd) { 
+			m.updateAI(func(c *config.AIConfig) { c.Enabled = !c.Enabled })
+			return m, nil 
+		}, "a", "Settings"},
+		{"settings-nas", "NAS Settings", "Open NAS settings", func(m *Model) (tea.Model, tea.Cmd) { m.settingsIdx = 9; return m.activateSetting() }, "n", "Settings"},
+		{"settings-tailscale", "Tailscale Settings", "Open Tailscale settings", func(m *Model) (tea.Model, tea.Cmd) { m.settingsIdx = 11; return m.activateSetting() }, "T", "Settings"},
+		// System
+		{"doctor", "Run Doctor", "Run system diagnostics", func(m *Model) (tea.Model, tea.Cmd) { m.modal = infoModal("DOCTOR", m.aboutBody()); return m, nil }, "d", "System"},
+		{"update-check", "Check Updates", "Check for Tash updates", func(m *Model) (tea.Model, tea.Cmd) { return m, m.checkUpdateCmd() }, "u", "System"},
+		{"reset-defaults", "Reset to Defaults", "Reset all settings to factory defaults", func(m *Model) (tea.Model, tea.Cmd) { 
+			m.settingsIdx = len(m.settingsRows()) - 1
+			return m.activateSetting() 
+		}, "R", "System"},
+	}
+	return items
 }
 
 func (m *Model) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -106,6 +214,39 @@ func (m *Model) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.runModalAction(md.action, md.value)
 		}
 		editModalInput(md, msg)
+		return m, nil
+
+	case modalKindCommandPalette:
+		cp := md.cmdPalette
+		switch key {
+		case "esc":
+			m.modal = modal{}
+			return m, nil
+		case "up", "k":
+			if cp.cursor > 0 {
+				cp.cursor--
+			}
+		case "down", "j":
+			if cp.cursor < len(cp.filtered)-1 {
+				cp.cursor++
+			}
+		case "enter":
+			if len(cp.filtered) > 0 && cp.cursor < len(cp.filtered) {
+				item := cp.filtered[cp.cursor]
+				m.modal = modal{}
+				return item.action(m)
+			}
+		case "backspace":
+			if len(cp.query) > 0 {
+				cp.query = cp.query[:len(cp.query)-1]
+				cp.filter(cp.query)
+			}
+		default:
+			if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
+				cp.query += key
+				cp.filter(cp.query)
+			}
+		}
 		return m, nil
 	}
 	m.modal = modal{}
@@ -380,6 +521,83 @@ func (m *Model) runModalAction(action, value string) (tea.Model, tea.Cmd) {
 			return dockerLogsMsg{name: c.Name, text: text, err: err}
 		}
 
+	case "docker-logs-follow":
+		if m.dockerClient == nil {
+			m.modal = modal{}
+			m.setToast("Docker is not configured", true)
+			return m, nil
+		}
+		c, ok := m.selectedContainer()
+		if !ok {
+			m.modal = modal{}
+			m.setToast("no container selected", true)
+			return m, nil
+		}
+		client := m.dockerClient
+		m.modal = infoModal("DOCKER LOGS // "+c.Name+" (following, ESC to stop)", "Connecting...")
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithCancel(context.Background())
+			ch, err := client.LogsFollow(ctx, c.ID, 200)
+			if err != nil {
+				cancel()
+				return dockerLogsMsg{name: c.Name, text: "", err: err}
+			}
+			var lines []string
+			for line := range ch {
+				lines = append(lines, line)
+				if len(lines) > 500 {
+					lines = lines[len(lines)-500:]
+				}
+			}
+			text := strings.Join(lines, "\n")
+			cancel()
+			return dockerLogsMsg{name: c.Name, text: text, err: nil}
+		}
+
+	case "docker-exec":
+		if m.dockerClient == nil {
+			m.modal = modal{}
+			m.setToast("Docker is not configured", true)
+			return m, nil
+		}
+		c, ok := m.selectedContainer()
+		if !ok {
+			m.modal = modal{}
+			m.setToast("no container selected", true)
+			return m, nil
+		}
+		m.modal = inputModal("DOCKER EXEC // "+c.Name, "Command to run (e.g. sh, bash, ls -la):", "sh", "", "docker-exec-run", false)
+		return m, nil
+
+	case "docker-exec-run":
+		if m.dockerClient == nil {
+			m.modal = modal{}
+			m.setToast("Docker is not configured", true)
+			return m, nil
+		}
+		c, ok := m.selectedContainer()
+		if !ok {
+			m.modal = modal{}
+			m.setToast("no container selected", true)
+			return m, nil
+		}
+		cmdStr := strings.TrimSpace(m.modal.value)
+		if cmdStr == "" {
+			m.modal = modal{}
+			m.setToast("command cannot be empty", true)
+			return m, nil
+		}
+		// Parse command into args
+		args := strings.Fields(cmdStr)
+		client := m.dockerClient
+		m.modal = modal{}
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			text, err := client.Exec(ctx, c.ID, args)
+			return dockerLogsMsg{name: c.Name, text: text, err: err}
+		}
+
 	case "nas-start":
 		cfg := m.cfg.NAS
 		if m.nas != nil && m.nas.Running() {
@@ -458,6 +676,108 @@ func (m *Model) runModalAction(action, value string) (tea.Model, tea.Cmd) {
 		}
 		m.modal = modal{}
 		m.setToast("NAS root: "+m.cfg.NAS.Root, false)
+		return m, nil
+
+	case "set-nas-port":
+		portStr := strings.TrimSpace(value)
+		port := 8788
+		fmt.Sscanf(portStr, "%d", &port)
+		if port < 1024 || port > 65535 {
+			m.modal = modal{}
+			m.setToast("port must be 1024-65535", true)
+			return m, nil
+		}
+		if m.store == nil {
+			m.modal = modal{}
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			c.NAS.Port = port
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("NAS port: "+err.Error(), true)
+			return m, nil
+		}
+		m.cfg = m.store.Snapshot()
+		m.modal = modal{}
+		m.setToast(fmt.Sprintf("NAS port: %d (restart NAS tab to apply)", port), false)
+		return m, nil
+
+	case "set-ts-display":
+		mode := strings.TrimSpace(value)
+		if mode != "all" && mode != "active" && mode != "custom" {
+			m.modal = modal{}
+			m.setToast("display mode must be: all, active, or custom", true)
+			return m, nil
+		}
+		if m.store == nil {
+			m.modal = modal{}
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			c.Tailscale.DisplayMode = mode
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("Tailscale display: "+err.Error(), true)
+			return m, nil
+		}
+		m.cfg = m.store.Snapshot()
+		m.modal = modal{}
+		m.setToast("Tailscale display: "+mode, false)
+		return m, nil
+
+	case "set-ts-interval":
+		sec := strings.TrimSpace(value)
+		n := 10
+		fmt.Sscanf(sec, "%d", &n)
+		if n < 1 || n > 60 {
+			m.modal = modal{}
+			m.setToast("interval must be 1-60 seconds", true)
+			return m, nil
+		}
+		if m.store == nil {
+			m.modal = modal{}
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			c.Tailscale.IntervalSec = n
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("Tailscale interval: "+err.Error(), true)
+			return m, nil
+		}
+		m.cfg = m.store.Snapshot()
+		m.modal = modal{}
+		m.setToast(fmt.Sprintf("Tailscale ping interval: %ds", n), false)
+		return m, nil
+
+	case "set-ts-maxpeers":
+		maxP := strings.TrimSpace(value)
+		n := 5
+		fmt.Sscanf(maxP, "%d", &n)
+		if n < 1 || n > 50 {
+			m.modal = modal{}
+			m.setToast("max peers must be 1-50", true)
+			return m, nil
+		}
+		if m.store == nil {
+			m.modal = modal{}
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			c.Tailscale.MaxPeers = n
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("Tailscale max peers: "+err.Error(), true)
+			return m, nil
+		}
+		m.cfg = m.store.Snapshot()
+		m.modal = modal{}
+		m.setToast(fmt.Sprintf("Tailscale max peers: %d", n), false)
 		return m, nil
 
 	case "set-ai-key":
@@ -584,6 +904,43 @@ func (m *Model) runModalAction(action, value string) (tea.Model, tea.Cmd) {
 			"EXTREME WARNING: regenerating the key disconnects every",
 			"existing device immediately.",
 		}, "\n"))
+		return m, nil
+
+	case "reset-to-defaults":
+		if m.store == nil {
+			m.modal = modal{}
+			m.setToast("no configuration", true)
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			// Reset UI settings
+			c.UI = config.Default().UI
+			// Reset AI settings
+			c.AI = config.Default().AI
+			// Reset NAS settings (except preserving AutoStart)
+			c.NAS.AutoStart = config.Default().NAS.AutoStart
+			c.NAS.Root = config.Default().NAS.Root
+			c.NAS.User = config.Default().NAS.User
+			c.NAS.Password = config.Default().NAS.Password
+			c.NAS.Port = config.Default().NAS.Port
+			c.NAS.ReadOnly = config.Default().NAS.ReadOnly
+			// Reset Docker settings
+			c.Docker = config.Default().Docker
+			// Reset Tailscale settings
+			c.Tailscale = config.Default().Tailscale
+			// Reset PiHole settings
+			c.PiHole = config.Default().PiHole
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("reset: "+err.Error(), true)
+			return m, nil
+		}
+		m.cfg = m.store.Snapshot()
+		// Restart services with new settings
+		m.startServices()
+		m.modal = modal{}
+		m.setToast("All settings reset to defaults", false)
 		return m, nil
 	}
 
@@ -853,6 +1210,21 @@ func (m *Model) keyTailscale(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setToast("pinging online peers…", false)
 		return m, m.pingCmd()
+	case "s":
+		peers := m.filteredPeers()
+		if len(peers) == 0 {
+			m.setToast("no peers to ssh", true)
+			return m, nil
+		}
+		if m.peerIdx >= len(peers) {
+			m.peerIdx = 0
+		}
+		peer := peers[m.peerIdx]
+		if peer.IP == "" {
+			m.setToast("peer has no IP", true)
+			return m, nil
+		}
+		return m.sshToPeer(peer.IP)
 	}
 	return m, nil
 }
@@ -916,6 +1288,10 @@ func (m *Model) keyDocker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "l":
 		return m.runModalAction("docker-logs", "")
+	case "f":
+		return m.runModalAction("docker-logs-follow", "")
+	case "e":
+		return m.runModalAction("docker-exec", "")
 	}
 	return m, nil
 }
@@ -965,6 +1341,14 @@ func (m *Model) keyTashnet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "t", "T":
 		return m.runModalAction("transfer", "")
+	case "x", "X":
+		if m.devIdx < len(devices) {
+			d := devices[m.devIdx]
+			if d.IP != "" {
+				return m.sshToPeer(d.IP)
+			}
+			m.setToast("device has no IP", true)
+		}
 	}
 	return m, nil
 }
@@ -1050,34 +1434,62 @@ func (m *Model) keyAI(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setToast("AI is still thinking…", false)
 			return m, nil
 		}
+		if !m.aiFocused {
+			m.aiFocused = true
+			return m, nil
+		}
 		return m, m.aiSend()
 	case "up":
-		m.aiScroll++
+		if m.aiFocused {
+			m.aiScroll++
+		}
 	case "down":
-		if m.aiScroll > 0 {
-			m.aiScroll--
+		if m.aiFocused {
+			if m.aiScroll > 0 {
+				m.aiScroll--
+			}
 		}
 	case "pgup":
-		m.aiScroll += 8
+		if m.aiFocused {
+			m.aiScroll += 8
+		}
 	case "pgdown":
-		m.aiScroll = maxInt(m.aiScroll-8, 0)
+		if m.aiFocused {
+			m.aiScroll = maxInt(m.aiScroll-8, 0)
+		}
 	case "left":
-		m.aiCursor = maxInt(m.aiCursor-1, 0)
+		if m.aiFocused {
+			m.aiCursor = maxInt(m.aiCursor-1, 0)
+		}
 	case "right":
-		m.aiCursor = minInt(m.aiCursor+1, len([]rune(m.aiInput)))
+		if m.aiFocused {
+			m.aiCursor = minInt(m.aiCursor+1, len([]rune(m.aiInput)))
+		}
 	case "home", "ctrl+a":
-		m.aiCursor = 0
+		if m.aiFocused {
+			m.aiCursor = 0
+		}
 	case "end", "ctrl+e":
-		m.aiCursor = len([]rune(m.aiInput))
+		if m.aiFocused {
+			m.aiCursor = len([]rune(m.aiInput))
+		}
 	case "backspace":
-		m.aiDeleteBack()
+		if m.aiFocused {
+			m.aiDeleteBack()
+		}
 	case "delete", "ctrl+d":
-		m.aiDeleteForward()
+		if m.aiFocused {
+			m.aiDeleteForward()
+		}
 	case "ctrl+u":
-		m.aiInput = ""
-		m.aiCursor = 0
+		if m.aiFocused {
+			m.aiInput = ""
+			m.aiCursor = 0
+		}
 	case "ctrl+w":
-		m.aiDeleteWord()
+		if m.aiFocused {
+			m.aiDeleteWord()
+		}
 	case "ctrl+n":
 		m.aiNewChat()
 		m.setToast("Started a new AI conversation", false)
@@ -1094,14 +1506,26 @@ func (m *Model) keyAI(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.cycleTab(-1)
 	case "esc":
-		if m.aiInput != "" {
+		if m.aiFocused {
+			m.aiFocused = false
 			m.aiInput = ""
 			m.aiCursor = 0
 		}
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		if m.aiFocused {
+			m.aiInsert(key)
+		} else {
+			if t, ok := m.tabNumber(key); ok {
+				m.setTab(t)
+				return m, nil
+			}
+		}
 	case " ":
-		m.aiInsert(" ")
+		if m.aiFocused {
+			m.aiInsert(" ")
+		}
 	default:
-		if len(key) == 1 && key >= " " && key <= "~" {
+		if m.aiFocused && len(key) == 1 && key >= " " && key <= "~" {
 			m.aiInsert(key)
 		}
 	}
@@ -1292,25 +1716,37 @@ func (m *Model) activateSetting() (tea.Model, tea.Cmd) {
 	case 10:
 		m.modal = inputModal("NAS ROOT", "Folder exposed over WebDAV:", m.cfg.NAS.Root, "Created automatically when the NAS starts.", "set-nas-root", false)
 	case 11:
-		m.modal = inputModal("REFRESH KEY", "Global refresh key:", m.keybind("refresh"), "Examples: r, R, ctrl+r", "set-key-refresh", false)
+		m.modal = inputModal("NAS PORT", "WebDAV server port (1024-65535):", fmt.Sprintf("%d", m.cfg.NAS.Port), "Restart NAS tab to apply. Avoid well-known ports.", "set-nas-port", false)
 	case 12:
-		m.modal = inputModal("HELP KEY", "About/help key:", m.keybind("help"), "Examples: ?, h, ctrl+h", "set-key-help", false)
+		m.modal = inputModal("TAILSCALE DISPLAY", "Display mode (all, active, custom):", m.cfg.Tailscale.DisplayMode, "all = show all peers, active = online only, custom = selected peers", "set-ts-display", false)
 	case 13:
-		m.modal = inputModal("QUIT KEY", "Quit key:", m.keybind("quit"), "Examples: q, Q, ctrl+q. ctrl+c always quits.", "set-key-quit", false)
+		m.modal = inputModal("TAILSCALE PING INTERVAL", "Seconds between pings (1-60):", fmt.Sprintf("%d", m.cfg.Tailscale.IntervalSec), "How often to ping peers. 1 = every second.", "set-ts-interval", false)
 	case 14:
+		m.modal = inputModal("TAILSCALE MAX PEERS", "Max peers to ping per interval (1-50):", fmt.Sprintf("%d", m.cfg.Tailscale.MaxPeers), "Limits concurrent pings to reduce load.", "set-ts-maxpeers", false)
+	case 15:
+		m.modal = infoModal("INSTALL DIRECTORY", "Current install location:\n  "+config.Dir()+"\n\nTo change the install directory, re-run the installer with --prefix flag:\n  tash installer --prefix /new/path\n\nOr download the portable build from the latest release.")
+	case 16:
+		return m, m.checkUpdateCmd()
+	case 17:
+		m.modal = inputModal("REFRESH KEY", "Global refresh key:", m.keybind("refresh"), "Examples: r, R, ctrl+r", "set-key-refresh", false)
+	case 18:
+		m.modal = inputModal("HELP KEY", "About/help key:", m.keybind("help"), "Examples: ?, h, ctrl+h", "set-key-help", false)
+	case 19:
+		m.modal = inputModal("QUIT KEY", "Quit key:", m.keybind("quit"), "Examples: q, Q, ctrl+q. ctrl+c always quits.", "set-key-quit", false)
+	case 20:
 		m.settings = settingsTabs
 		m.tabCfgIdx = 0
-	case 15:
+	case 21:
 		m.updateUI(func(c *config.UIConfig) {
 			c.Splash = !c.Splash
 		})
-	case 16:
+	case 22:
 		m.updateUI(func(c *config.UIConfig) {
 			c.Clock24 = !c.Clock24
 		})
-	case 17:
+	case 23:
 		m.cycleDeckLayout()
-	case 18:
+	case 24:
 		m.updateUI(func(c *config.UIConfig) {
 			if c.TabPosition == "top" {
 				c.TabPosition = "bottom"
@@ -1318,8 +1754,10 @@ func (m *Model) activateSetting() (tea.Model, tea.Cmd) {
 				c.TabPosition = "top"
 			}
 		})
-	case 19:
+	case 25:
 		m.modal = infoModal("ABOUT TASH // OPERATOR MANUAL", m.aboutBody())
+	case 26:
+		m.modal = confirmModal("RESET TO DEFAULTS", "This will reset ALL settings to factory defaults:\n  • UI (theme, splash, clock, deck layout, tab position)\n  • Keybindings (refresh, help, quit)\n  • AI integration (enabled, provider, model, API key, command, workdir, permission)\n  • NAS (password, root, auto-start)\n  • Tabs (visibility, order, numbers)\n\nTashnet, Pi-hole, Docker, and Tailscale settings are NOT reset.\n\nType RESET to confirm:", "RESET", "reset-to-defaults")
 	}
 	return m, nil
 }
@@ -1405,4 +1843,23 @@ func (m *Model) toggleTabVisibility(id string) {
 	if !m.tabVisible(m.tab) {
 		m.setTab(TabSettings)
 	}
+}
+
+func (m *Model) sshToPeer(ip string) (tea.Model, tea.Cmd) {
+	user := "root"
+	if m.cfg.NAS.User != "" {
+		user = m.cfg.NAS.User
+	}
+	m.quitting = true
+	return m, tea.Sequence(
+		tea.Quit,
+		func() tea.Msg {
+			cmd := exec.Command("ssh", fmt.Sprintf("%s@%s", user, ip))
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return nil
+		},
+	)
 }

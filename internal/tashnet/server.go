@@ -234,6 +234,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/v1/network", s.handleNetwork)
 	mux.HandleFunc("/v1/whoami", s.handleWhoami)
 	mux.HandleFunc("/v1/transfer/complete", s.handleTransferComplete)
+	mux.HandleFunc("/v1/config/get", s.handleConfigGet)
+	mux.HandleFunc("/v1/config/push", s.handleConfigPush)
 	return s.securityHeaders(mux)
 }
 
@@ -595,4 +597,108 @@ func ParsePort(s string) (int, error) {
 		return 0, fmt.Errorf("port must be between 1024 and 65535")
 	}
 	return v, nil
+}
+
+// ConfigSyncResponse is the response for config sync operations.
+type ConfigSyncResponse struct {
+	Config     *config.Config `json:"config,omitempty"`
+	Version    int            `json:"version"`
+	Timestamp  int64          `json:"timestamp"`
+	DeviceID   string         `json:"device_id,omitempty"`
+	Message    string         `json:"message,omitempty"`
+}
+
+// handleConfigGet returns the current config to authorized clients.
+func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := s.store.Snapshot()
+	if cfg.Tashnet.Role != "main" {
+		writeError(w, http.StatusServiceUnavailable, "not a Tashnet main device")
+		return
+	}
+	// Only allow authenticated devices
+	token := r.Header.Get("Authorization")
+	if token == "" || !strings.HasPrefix(token, "Bearer ") {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !s.validateToken(token) {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	writeJSON(w, http.StatusOK, ConfigSyncResponse{
+		Config:    &cfg,
+		Version:   cfg.Tashnet.SecretVersion,
+		Timestamp: time.Now().Unix(),
+	})
+}
+
+// handleConfigPush pushes config from main to a specific device or broadcasts to all.
+func (s *Server) handleConfigPush(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := s.store.Snapshot()
+	if cfg.Tashnet.Role != "main" {
+		writeError(w, http.StatusServiceUnavailable, "not a Tashnet main device")
+		return
+	}
+	var req struct {
+		TargetDeviceID string          `json:"target_device_id,omitempty"` // empty = broadcast to all
+		Config         json.RawMessage `json:"config"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	// Apply config locally first
+	var newCfg config.Config
+	if err := json.Unmarshal(req.Config, &newCfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid config: "+err.Error())
+		return
+	}
+	// Preserve critical Tashnet fields
+	newCfg.Tashnet.DeviceID = cfg.Tashnet.DeviceID
+	newCfg.Tashnet.DeviceName = cfg.Tashnet.DeviceName
+	newCfg.Tashnet.Role = cfg.Tashnet.Role
+	newCfg.Tashnet.SecretVersion = cfg.Tashnet.SecretVersion
+	newCfg.Tashnet.ControlPort = cfg.Tashnet.ControlPort
+	newCfg.Tashnet.Name = cfg.Tashnet.Name
+
+	if err := s.store.Update(func(c *config.Config) error {
+		*c = newCfg
+		return nil
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to apply config: "+err.Error())
+		return
+	}
+	// Broadcast to target device(s)
+	if req.TargetDeviceID != "" {
+		// TODO: push to specific device
+	} else {
+		// TODO: broadcast to all devices
+	}
+	writeJSON(w, http.StatusOK, ConfigSyncResponse{
+		Version:  newCfg.Tashnet.SecretVersion,
+		Timestamp: time.Now().Unix(),
+		Message:  "config synced",
+	})
+}
+
+func (s *Server) validateToken(token string) bool {
+	cfg := s.store.Snapshot()
+	for _, d := range cfg.Tashnet.Devices {
+		if subtle.ConstantTimeCompare([]byte(d.Token), []byte(token)) == 1 {
+			return true
+		}
+	}
+	// Also check self token
+	if cfg.Tashnet.Token != "" && subtle.ConstantTimeCompare([]byte(cfg.Tashnet.Token), []byte(token)) == 1 {
+		return true
+	}
+	return false
 }

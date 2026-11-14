@@ -1,0 +1,14 @@
+{
+  "name": "file-sync",
+  "version": "1.0.0",
+  "description": "Sync files between Tashnet devices via NAS",
+  "author": "Tash Team",
+  "kind": "background",
+  "entry_point": "file-sync",
+  "api_version": 1,
+  "config": {
+    "sync_interval": 30,
+    "conflict_resolution": "newest",
+    "watch_dirs": ["sync"]
+  }
+}

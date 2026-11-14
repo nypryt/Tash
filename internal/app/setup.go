@@ -14,7 +14,8 @@ import (
 type setupStage int
 
 const (
-	stageWelcome setupStage = iota
+	stageTOS       setupStage = iota // Terms of Service agreement
+	stageWelcome
 	stageMainSecret
 	stageJoinSecret
 	stageJoinURL
@@ -66,7 +67,7 @@ type setupState struct {
 
 func newSetup() setupState {
 	return setupState{
-		stage: stageWelcome, dockerMode: "cli", dockerHost: config.DefaultDockerHost(),
+		stage: stageTOS, dockerMode: "cli", dockerHost: config.DefaultDockerHost(),
 		themeName: "matrix",
 	}
 }
@@ -174,7 +175,7 @@ func (m *Model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	if key == "esc" {
-		if s.stage == stageWelcome {
+		if s.stage == stageWelcome || s.stage == stageTOS {
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -184,7 +185,7 @@ func (m *Model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setupBack()
 		return m, nil
 	}
-	if key == "q" && s.stage == stageWelcome {
+	if key == "q" && (s.stage == stageWelcome || s.stage == stageTOS) {
 		m.quitting = true
 		return m, tea.Quit
 	}
@@ -197,6 +198,17 @@ func (m *Model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch s.stage {
+	case stageTOS:
+		switch key {
+		case "y", "Y", "1", "enter":
+			s.stage = stageWelcome
+			s.err = ""
+		case "n", "N", "2":
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
+
 	case stageWelcome:
 		switch key {
 		case "1", "m", "M":
@@ -477,8 +489,10 @@ func (m *Model) setupBack() {
 	s := &m.setup
 	s.err = ""
 	switch s.stage {
-	case stageWelcome:
+	case stageTOS:
 		m.quitting = true
+	case stageWelcome:
+		s.stage = stageTOS
 	case stageMainSecret:
 		s.secret = ""
 		s.stage = stageWelcome
