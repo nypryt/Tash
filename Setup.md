@@ -1,403 +1,411 @@
-# Tash
+# Tash — Complete Guide 🚀
 
-**Tash** is a hackery terminal control deck for your network. One command opens
-a live dashboard for Tailscale latency, Pi hole DNS, Docker, a WebDAV NAS, a
-vim style editor, themes, and the **Tashnet** secret key network.
+**Tash** is a terminal control deck for managing your infrastructure: Tailscale, Pi-hole, Docker, NAS, AI, and a secure mesh network (Tashnet) — all from one TUI.
 
-```text
-  ████████╗ █████╗ ███████╗██╗  ██╗
-  ╚══██╔══╝██╔══██╗██╔════╝██║  ██║
-     ██║   ███████║███████╗███████║
-     ██║   ██╔══██║╚════██║██╔══██║
-     ██║   ██║  ██║███████║██║  ██║
-     ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+---
+
+## 🎯 What Is Tash?
+
+Tash runs in your terminal and gives you a dashboard with tabs for:
+
+| Tab | Purpose |
+|-----|---------|
+| **1 DECK** | Overview of all services at a glance |
+| **2 TAILSCALE** | Tailnet peers, latency, ping, SSH |
+| **3 PI-HOLE** | DNS firewall stats, queries, gravity, blocking |
+| **4 DOCKER** | Containers: start/stop/logs/exec/restart |
+| **5 TASHNET** | Secure mesh: approve devices, transfer main role |
+| **6 NAS** | WebDAV file server (password, mount help) |
+| **7 EDITOR** | Vim-style editor (`:w`, `:q`, search, split) |
+| **8 AI** | In-app chat (Claude Code, OpenAI-compatible) |
+| **9 SETTINGS** | Themes, keys, tabs, AI, NAS, Tailscale, reset |
+
+---
+
+## 📁 Release Artifacts
+
+Each version folder (`V1.0.1/`, `V1.0.2/`, `V1.1/`, `V1.1.1/`) contains:
+
+```
+V1.1.1/
+├── checksums.txt              # SHA256 checksums
+├── tashinstaller_win64.exe    # Windows x64 installer
+├── tashinstaller_winarm.exe   # Windows ARM64 installer
+├── tashinstaller_linux64.elf  # Linux x64 installer
+├── tashinstaller_linuxarm.elf # Linux ARM64 installer
+├── tashinstaller_appleintel.dmg   # macOS Intel installer
+├── tashinstaller_applesilicon.dmg # macOS Apple Silicon installer
+├── tash_portable_win64.exe         # Windows x64 portable
+├── tash_portable_winarm.exe        # Windows ARM64 portable
+├── tash_portable_linux64.elf       # Linux x64 portable
+├── tash_portable_linuxarm.elf      # Linux ARM64 portable
+├── tash_portable_appleintel.dmg    # macOS Intel portable
+└── tash_portable_applesilicon.dmg  # macOS Apple Silicon portable
 ```
 
-The entrypoint is always:
+**Choose:**
+- **Installer** — First-time setup, PATH integration, auto-start services
+- **Portable** — USB, no admin, temp use, multiple versions side-by-side
 
-```sh
-tash dashboard
+---
+
+## 💻 Installation
+
+### Windows 🪟
+```powershell
+# Installer (run as Admin for PATH)
+.\tashinstaller_win64.exe
+
+# Options
+.\tashinstaller_win64.exe --prefix "C:\Tash" --portable --with-go --no-path --yes
+
+# Portable
+.\tash_portable_win64.exe dashboard
 ```
 
-## Features
+### Linux 🐧
+```bash
+chmod +x tashinstaller_linux64.elf
+./tashinstaller_linux64.elf              # Install (sudo for system-wide)
+./tashinstaller_linux64.elf --prefix /opt/tash --portable --yes
 
-- **Tailscale**: node state, peer list, latency sparklines, and a ping loop.
-- **Pi hole**: v6 session auth with v5 fallback: query feed, blocked counts,
-  gravity updates, blocklist additions, and blocking on/off.
-- **Docker**: choose the Docker CLI or a direct Engine API connection over a
-  Unix socket, Windows npipe, or protected TCP.
-- **NAS**: an authenticated WebDAV server with no root and no proot.
-- **Editor**: a built in vim style modal editor.
-- **Themes**: bundled palettes, live preview, and custom JSON themes.
-- **Tashnet**: a secret key network where every new device needs explicit
-  approval on the main device. Main role handover and secret regeneration are
-  built in.
-
-Tash runs on Windows x64/arm64, macOS Intel/Apple Silicon, Linux x64/arm64, and
-unrooted Termux arm64.
-
-## Install
-
-Every installer is terminal based: it installs one self contained `tash`
-binary, adds it to your user `PATH`, and immediately opens first run setup.
-
-### Windows
-
-1. Download `Tash-Setup-<version>-windows-amd64.exe` (or `arm64`).
-2. Double click it. A console opens.
-3. SmartScreen may warn about an unsigned installer: choose **More info** →
-   **Run anyway**.
-4. Tash installs to `%LOCALAPPDATA%\Programs\Tash` and updates your user `PATH`.
-5. Open a new terminal and run `tash dashboard` whenever you want the deck.
-
-### macOS
-
-1. Download the DMG for your Mac: `arm64` for Apple Silicon, `amd64` for Intel.
-2. Open the DMG and double click **Install Tash.command**. Terminal opens.
-3. The installer copies `tash` to `~/.local/bin` and adds it to `PATH`.
-4. If Gatekeeper blocks the unsigned installer, right click it and choose
-   **Open**, or run:
-
-   ```sh
-   xattr -d com.apple.quarantine "Install Tash.command"
-   ```
-
-5. Run `tash dashboard` from a new terminal.
-
-The DMG must be created on macOS. The release workflow does this on real Intel
-and Apple Silicon runners.
-
-### Linux
-
-```sh
-chmod +x Tash-Setup-<version>-linux-amd64.elf
-./Tash-Setup-<version>-linux-amd64.elf
+# Portable
+chmod +x tash_portable_linux64.elf
+./tash_portable_linux64.elf dashboard
 ```
 
-The installer writes `~/.local/bin/tash`, updates your shell startup file, and
-opens setup. For arm64 Linux use the `linux-arm64.elf`.
+### macOS 🍎
+```bash
+# Intel
+open tashinstaller_appleintel.dmg
+# Apple Silicon
+open tashinstaller_applesilicon.dmg
 
-### Termux (Android, unrooted)
+# In Finder: double-click "Install Tash.command"
+# If blocked: xattr -d com.apple.quarantine "Install Tash.command"
 
-Use the `linux-arm64.elf` installer:
-
-```sh
-chmod +x Tash-Setup-<version>-linux-arm64.elf
-./Tash-Setup-<version>-linux-arm64.elf
+# Portable
+chmod +x tash_portable_appleintel.dmg
+./tash_portable_appleintel.dmg dashboard
 ```
 
-It installs to `$PREFIX/bin/tash` — no root and no proot. The Tailscale CLI is
-not exposed to unrooted Termux, so install the Tailscale Android app instead;
-Tash detects this and still runs Pi-hole, the NAS, the editor, and Tashnet.
+> **Note:** macOS `.dmg` files are true DMG packages on macOS; on other platforms they're raw Mach-O binaries.
 
-For a NAS that stays alive with the screen off:
+---
 
-```sh
-termux-wake-lock
-tash nas serve
+## ✅ Verify Downloads
+
+```bash
+# Linux/macOS
+sha256sum -c checksums.txt
+
+# Windows PowerShell
+Get-FileHash -Algorithm SHA256 tashinstaller_win64.exe
+# Compare with checksums.txt
 ```
 
-### From source
+---
 
-Requires Go 1.26 or newer.
+## 🚀 First Run
 
-```sh
-git clone https://github.com/nypryt/tash.git
-cd tash
-CGO_ENABLED=0 go build -trimpath -o tash ./cmd/tash
-./tash dashboard
+```bash
+tash dashboard          # Opens TUI; runs setup wizard on first run
+tash setup              # Same as dashboard
 ```
 
-## First run
+**Setup wizard guides you through:**
+1. Platform detection (Windows/macOS/Linux/Termux)
+2. Config directory creation (`~/.config/tash` or `%APPDATA%\tash`)
+3. Tashnet role: **MAIN DEVICE** (first) or **JOIN TASHNET** (clients)
+4. Optional: Tailscale, Pi-hole, Docker, NAS configuration
+5. Launch dashboard
 
-On first launch Tash has no configuration and opens the setup wizard:
+---
 
-1. **Choose the device role.**
-   - **Main device** — the first machine. Tash generates a
-     `TASH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX` Secret Key.
-   - **Join Tashnet** — any later machine. Tash prompts exactly
-     `Secret Key:` and asks for the main device address.
-2. **Docker mode** — CLI, socket/API, or skip. The wizard explains the tradeoff.
-3. **Theme** — every choice previews live.
-4. **Pi-hole** (optional) — URL plus a v6 app password or v5 API token.
-5. **NAS** — choose whether WebDAV starts with the dashboard.
-6. **Finish** — on a joining device, this step is only available after the main
-   device approves the request.
-
-The main device must be running `tash dashboard` (specifically its TASHNET tab)
-to see and approve join requests. Nothing is saved on a client until approval.
-
-### Changing the main device later
-
-On the current main device:
-
-```sh
-tash main transfer
-```
-
-This prints a one-time `TASHXL1-…` code that expires in **10 minutes**. It
-contains the Tashnet secret and every approved device token, so treat it exactly
-like the Secret Key. On the new device:
-
-```sh
-tash main claim -url http://<new-tailscale-ip>:8787 '<code>'
-```
-
-The new device becomes main and notifies the old main to demote itself. If the
-old main is offline, Tash warns about split brain. Run the claim on a client or
-fresh device, not on the existing main.
-
-### Regenerating the secret
-
-From the TASHNET tab press `g`, or run:
-
-```sh
-tash secret regen
-```
-
-Tash shows an **EXTREME WARNING** and requires typing `REGENERATE`. The action
-immediately:
-
-- invalidates every approved device token,
-- disconnects every client,
-- rejects every pending join,
-- requires every device to rejoin with the new key and be re-approved.
-
-The main device stays main.
-
-## Tashnet security model
-
-- The Secret Key is the root of trust. It is stored only on the main device in
-  `secret.key` with mode `0600`.
-- A joining device never sends the secret. It sends an HMAC proof bound to its
-  device ID and the join request; the main verifies the proof.
-- Even someone with the key cannot silently join: the main device must approve
-  every request.
-- Clients receive a random bearer token. Heartbeats detect revocation after a
-  secret regeneration or device removal.
-- The control API is plain HTTP. Run Tashnet over Tailscale or another trusted
-  VPN, and never port-forward the control or NAS ports to the internet.
-- Transfer codes contain the secret and all tokens. They are as sensitive as the
-  Secret Key itself.
-
-See [docs/tashnet.md](docs/tashnet.md) for the protocol.
-
-## Dashboard
+## 🎮 Dashboard Controls
 
 | Key | Action |
-| --- | --- |
-| `1` … `9` | Jump to a tab |
-| `tab` / `shift+tab` | Cycle tabs |
-| `r` | Refresh services |
-| `?` | Help |
+|-----|--------|
+| `1-9` | Switch tabs |
+| `Tab` / `Shift+Tab` | Next/prev tab |
+| `r` | Refresh all services |
+| `?` | About / help |
 | `q` | Quit |
-| `ctrl+c` | Force quit |
+| `↑↓` | Navigate lists |
+| `p` / `P` | Ping peer / ping all (Tailscale) |
+| `s` | SSH to peer (Tailscale) / Start/stop (NAS/Docker) |
+| `f` | Follow logs (Docker) |
+| `e` | Exec command in container (Docker) |
+| `a/d` | Approve/deny device (Tashnet main) |
+| `x` | SSH to device (Tashnet) |
+| `ctrl+p` | **Command Palette** (fuzzy search all actions) |
+| `esc` | Close modal / back in settings |
 
-Tabs: **DECK**, **TAILSCALE**, **PI-HOLE**, **DOCKER**, **TASHNET**, **NAS**,
-**EDITOR**, **THEMES**, **HELP**.
+---
 
-### Tailscale
+## 🌐 Tashnet — Secure Mesh
 
-`↑`/`↓` selects a peer, `p` pings it, and `P` pings every online peer. The ping
-loop runs automatically when enabled. On unrooted Termux the Tailscale CLI is
-unavailable; use the Android app and the rest of Tash still works.
-
-### Pi-hole
-
-Configure interactively:
-
-```sh
-tash pihole setup
+**Main Device (first machine):**
+```bash
+tash dashboard
+# Choose MAIN DEVICE → generates secret key
 ```
 
-Pi-hole v6 uses the password or an application password to create a session.
-Pi-hole v5 uses the API token. Other commands:
-
-```sh
-tash pihole test
-tash pihole block https://example.com/hosts.txt
-tash pihole block ads.example.com
-tash pihole block 'regex:^ads\.'
-tash pihole gravity
-tash pihole blocking off
-tash pihole blocking on
+**Client Devices:**
+```bash
+tash dashboard
+# Choose JOIN TASHNET → paste secret key → wait for approval
 ```
 
-From the PI-HOLE tab: `a` adds a block entry, `b` toggles blocking, `g` runs
-gravity. Use `tash pihole setup -insecure` for a self-signed HTTPS certificate.
+**Main device approves in TASHNET tab (5):** `a` approve, `d` deny
 
-### Docker
-
-Choose how Tash talks to the engine:
-
-```sh
-tash docker use cli
-tash docker use socket unix:///var/run/docker.sock
-tash docker use socket npipe:////./pipe/docker_engine
-tash docker use socket tcp://192.168.1.20:2375
-tash docker use off
-tash docker status
+**Transfer Main Role:**
+```bash
+tash main transfer                    # On current main
+# Output: transfer code (expires 10 min)
+tash main claim <code>                # On new device
 ```
 
-- **CLI mode** uses your `docker` command and current context. Best for laptops,
-  desktops, and Docker Desktop.
-- **Socket/API mode** talks directly to the Engine API. Best for headless
-  servers, containers, or machines without the CLI.
-
-The Docker socket is **root-equivalent** on the host. Only expose TCP mode over
-a trusted VPN or firewall, never the public internet.
-
-### NAS (WebDAV)
-
-The default root is `~/Tash/NAS`, the default port is `8788`, and the generated
-username is `tash`. Start it from the NAS tab with `s`, or headlessly:
-
-```sh
-tash nas serve
+**Rejoin after key rotation:**
+```bash
+tash join                             # Prompts for secret + main URL
 ```
 
-The NAS tab shows the WebDAV URL and password (`p` reveals it). Mount examples:
+---
 
-- **Windows**: Explorer → This PC → Map network drive. Paste the DAV URL.
-  Windows may need the WebClient service enabled.
-- **macOS**: Finder → Go → Connect to Server (`⌘K`).
-- **Linux**: GNOME Files → Other Locations → Connect to Server, or
-  `mount.davfs <dav-url> /mnt/tash`.
-- **Android**: add a WebDAV storage in Material Files, Solid Explorer, or RCX.
+## 🔧 Configuration
 
-WebDAV uses Basic auth. Because Tash serves plain HTTP, use it over Tailscale or
-a trusted LAN, not the public internet. On Termux, the NAS stays reachable while
-Termux is alive; use `termux-wake-lock`.
+**Config file:** `~/.config/tash/config.json` (auto-managed)
 
-### Editor
+**Settings (Tab 9) covers:**
+- **Themes** — Built-in + custom (press `c` to copy & edit)
+- **AI** — Provider (Claude/OpenAI/Anthropic/Custom), API key, model, command, workdir, permissions
+- **NAS** — Password, root folder, port, read-only
+- **Tailscale** — Display mode (all/active/custom), ping interval (1-60s), max peers
+- **Keybindings** — Refresh, help, quit keys
+- **Tabs** — Hide/show, reorder (J/K), reassign numbers (1-9)
+- **UI** — Splash, 24h clock, deck layout (auto/cards/compact), tab position (top/bottom)
+- **Reset to Defaults** — Factory reset (preserves Tashnet identity)
 
-The EDITOR tab is a vim style modal editor. Standalone:
-
-```sh
-tash edit notes.md
-```
-
-Keys: `i` insert, `esc` normal, `:w` save, `:q` quit, `:wq` save and quit,
-`/` search, `n`/`N` next/previous match, `dd` delete line, `yy` yank, `p` paste,
-`u` undo. In the dashboard, `ctrl+o` opens a file, `ctrl+n` starts a scratch
-buffer, and `ctrl+1`…`ctrl+9` switch tabs.
-
-### Themes
-
-```sh
-tash theme list
-tash theme set matrix
-tash theme new my-theme --from nord
-tash theme dir
-```
-
-The THEMES tab previews live and `enter` applies. `c` copies the current theme
-to a custom JSON file and opens it in the editor. Themes are plain JSON with hex
-colours; invalid files fall back to Matrix.
-
-## Command reference
-
-```text
-tash dashboard [--theme NAME] [--edit FILE]
-tash setup
-tash join [--url URL]
-tash edit [file]
-tash secret show [--reveal]
-tash secret regen
-tash main transfer
-tash main claim [-url URL] <code>
-tash main info
-tash nas serve
+**CLI config:**
+```bash
 tash docker use cli|socket <host>|off
 tash docker status
 tash pihole setup|test|block|gravity|blocking
 tash theme list|set|new|dir
+tash ai status|prompt|launch
+tash update check|install
 tash doctor
-tash version
-tash help
+tash secret show|regen
 ```
 
-## Configuration
+---
 
-| Platform | Default directory |
-| --- | --- |
-| Windows | `%AppData%\Tash` |
-| macOS | `~/Library/Application Support/Tash` |
-| Linux / Termux | `$XDG_CONFIG_HOME/tash` or `~/.config/tash` |
+## 🤖 AI Integration (Tab 8)
 
-Set `TASH_HOME` to override the whole directory:
+**Supported:**
+- **Claude Code** (default) — `npm i -g @anthropic-ai/claude-code` then `claude`
+- **OpenAI-compatible** — Custom base URL + API key
+- **Anthropic API** — Direct API key
 
-```sh
-TASH_HOME=/srv/tash tash dashboard
+**Features:**
+- Persistent chat sessions (survives tab switches)
+- Workdir-aware (reads files, runs tools)
+- `ctrl+n` new chat, `ctrl+o` change workdir, `ctrl+a` API key, `ctrl+m` model, `ctrl+r` refresh
+
+**Setup in Settings → AI:**
+- Enable toggle
+- Provider, base URL, API key, model, command, permission mode
+
+---
+
+## 🐳 Docker (Tab 4)
+
+**Modes:**
+- `cli` — Uses your `docker` command (follows contexts)
+- `socket` — Direct socket (`unix:///var/run/docker.sock`)
+- `off` — Disabled
+
+**Container actions:**
+| Key | Action |
+|-----|--------|
+| `s`/`x` | Start/stop |
+| `p`/`u` | Pause/resume |
+| `R` | Restart |
+| `D` | Delete (force) |
+| `l` | View logs (160 lines) |
+| `f` | **Follow logs** (streaming, like `docker logs -f`) |
+| `e` | **Exec command** (`sh`, `bash`, `ls`, `cat /var/log/...`) |
+
+---
+
+## 🕳️ Pi-hole (Tab 3)
+
+**Setup:** `tash pihole setup` → URL + password/app-password → restart dashboard
+
+**Actions:**
+| Key | Action |
+|-----|--------|
+| `a` | Add block (URL/domain/regex) |
+| `A` | Add allow |
+| `b` | Toggle blocking |
+| `g` | Run gravity update |
+
+Shows: queries, blocked %, gravity domains, clients, recent queries, top blocked.
+
+---
+
+## 📁 NAS / WebDAV (Tab 6)
+
+**Start/stop:** `s` key
+**Mount help:** Platform-specific (Windows Explorer, Finder, davfs2, Android apps)
+**File browser:** `Enter` open, `Backspace` up, Basic auth over HTTP
+**Use Tailscale for remote access.**
+
+---
+
+## 🔑 Tailscale (Tab 2)
+
+**Features:**
+- Peer list with latency sparklines
+- `p` ping selected, `P` ping all online
+- `s` SSH to peer (uses NAS user)
+- **Display modes** (Settings): `all` / `active` / `custom` (select peer IPs)
+- **Ping interval:** 1-60 seconds
+- **Max peers per interval:** 1-50
+
+---
+
+## 🎨 Themes
+
+```bash
+tash theme list              # Built-in (*) + custom
+tash theme set matrix        # Apply theme
+tash theme new mytheme       # Copy current to custom + open in editor
+tash theme dir               # Show themes directory
 ```
 
-Files:
+**In Settings → Themes:** Live preview, `Enter` apply, `c` copy to custom.
 
-- `config.json` — UI, services, Tashnet state, and credentials (mode `0600`).
-- `secret.key` — the Tashnet Secret Key on the main device only.
-- `themes/*.json` — custom themes.
+---
 
-## Build and release
+## 🔌 Plugin System
 
-```sh
-# Windows PowerShell
-./scripts/build.ps1 -Clean
+**Directory:** `~/.config/tash/plugins/` (each plugin in its own folder with `manifest.json`)
 
-# Linux / Termux / macOS
-./scripts/build.sh --clean
+**Plugin kinds:** `tab`, `widget`, `command`, `background`
 
-# Quick cross-compile check
-./scripts/build.sh --skip-installers --clean
+**Built-in examples:**
+- `example-widget` (Python) — System stats widget
+- `ssh-connect` (Go) — SSH tab/command
+- `file-sync` (Go) — Background NAS sync between devices
+
+**Create your own:**
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "kind": "command",
+  "entry_point": "run.sh",
+  "api_version": 1
+}
 ```
 
-Targets: `windows/amd64`, `windows/arm64`, `linux/amd64`, `linux/arm64`,
-`darwin/amd64`, `darwin/arm64`. Installers embed the matching `tash` binary and
-are built as `.exe` (Windows), `.elf` (Linux/Termux), and `.dmg` (macOS).
+**API available to plugins:** Config, UI (tabs/widgets), Tashnet, NAS, Docker, Pi-hole, Events, Logging.
 
-The DMG job requires macOS because it uses `hdiutil`; the GitHub release
-workflow runs it on Intel and Apple Silicon runners. See
-[docs/building.md](docs/building.md).
+---
 
-Run the checks:
+## 🔄 File Sync (Plugin)
 
-```sh
-go build ./...
-go vet ./...
-go test ./...
+**Background plugin** syncing `sync/` folder via NAS between Tashnet devices.
+
+**Config (manifest.json):**
+```json
+{
+  "sync_interval": 30,
+  "conflict_resolution": "newest",
+  "watch_dirs": ["sync"]
+}
 ```
 
-## Troubleshooting
+---
 
-Start with:
+## 🛠 Troubleshooting
 
-```sh
-tash doctor
+| Issue | Fix |
+|-------|-----|
+| `command not found` | Add install dir to PATH, restart shell |
+| Permission denied | `chmod +x` (Linux/macOS); Run as Admin (Windows) |
+| macOS Gatekeeper blocks | `xattr -d com.apple.quarantine <file>` |
+| Tailscale not found | Install Tailscale app, restart Tash |
+| Docker not working | `tash docker use cli` or `socket <host>` |
+| Config corrupted | Delete `~/.config/tash`, re-run `tash dashboard` |
+| AI not detected | Check Settings → AI provider/key; `tash ai status` |
+| NAS won't start | Check port free, root exists, `tash nas serve` for logs |
+
+---
+
+## 📦 What Gets Installed
+
+| Component | Location |
+|-----------|----------|
+| `tash` binary | `--prefix`/bin or `~/.local/bin` / `%APPDATA%\tash\bin` |
+| Config | `~/.config/tash` / `%APPDATA%\tash` |
+| Secret key | `~/.config/tash/secret.key` |
+| Themes | `~/.config/tash/themes` |
+| Plugins | `~/.config/tash/plugins` |
+| NAS root | `~/tash-nas` (configurable) |
+| Logs | Stdout/stderr (run in terminal) |
+
+---
+
+## 📚 Command Reference
+
+```bash
+tash dashboard [--theme NAME] [--edit FILE]   # Open TUI
+tash setup                                    # Same as dashboard
+tash join [--url URL]                         # Pair with main device
+tash edit [file]                              # Standalone editor
+tash secret show [--reveal]                   # Show Tashnet secret
+tash secret regen                             # Rotate key (DISCONNECTS ALL)
+tash main transfer                            # 10-min handover code
+tash main claim <code>                        # Claim main role
+tash main info                                # Show role/status
+tash nas serve                                # Run WebDAV headless
+tash docker use cli|socket <host>|off         # Configure Docker
+tash docker status                            # Engine status
+tash pihole setup|test|block|gravity|blocking # Pi-hole control
+tash theme list|set|new|dir                   # Theme management
+tash ai status|prompt|launch                  # AI chat
+tash update check|install                     # Check/install updates
+tash doctor                                   # Full system diagnostics
+tash version                                  # Version info
 ```
 
-- **`tash: command not found` after installing**: open a new terminal. The
-  installer updates the user PATH, but existing shells do not see it.
-- **Main device says `secret.key` is missing**: restore the key file, or
-  re run first time setup if you accept that clients must rejoin.
-- **A client was disconnected**: the main regenerated the secret or removed the
-  device. Run `tash join` on the client and approve it again.
-- **Termux shows no Tailscale peers**: the unrooted CLI cannot reach the
-  daemon. Use the Tailscale Android app; Tash shows this guidance.
-- **Pi hole fails TLS**: run `tash pihole setup -insecure` for a self signed
-  certificate, or fix the certificate chain.
-- **Docker permission denied**: add your user to the `docker` group on Linux,
-  or run Tash as a user that can access the socket. On Windows, make sure Docker
-  Desktop is running.
-- **NAS port in use**: change `nas.port` in `config.json`, or stop the other
-  service.
-- **macOS says the installer is damaged**: the DMG is unsigned. Right click →
-  Open, or remove the quarantine attribute shown above.
+---
 
-## Documentation
+## 🎯 Quick Tips
 
-- [Tashnet protocol](docs/tashnet.md)
-- [Services: Pi hole, Docker, NAS](docs/services.md)
-- [Building and releasing](docs/building.md)
-- [Architecture](docs/architecture.md)
+- **`ctrl+p`** — Command palette: fuzzy search tabs, actions, settings, SSH, exec
+- **`r`** — Refresh all services instantly
+- **`Tab`** — Cycle tabs; `Shift+Tab` reverse
+- **Settings → Tabs** — Hide unused tabs, reorder with J/K, renumber with 1-9
+- **Settings → Tailscale** — Set ping to `1` for real-time latency
+- **Docker `f`** — Follow logs like `tail -f`; `e` — run `bash` for shell
+- **Tashnet `t`** — Transfer main role safely with 10-min code
+- **Plugin `file-sync`** — Drop files in `~/tash-nas/sync` to replicate across devices
 
-Tash does not need root. It is designed for trusted networks and Tailscale, not
-for exposure to the public internet.
+---
+
+## 🔗 Resources
+
+- **GitHub:** https://github.com/tash/tash
+- **Issues:** https://github.com/tash/tash/issues
+- **In-app help:** Press `?` in dashboard
+- **Doctor:** `tash doctor` for full system check
+
+---
+
+**Tash — Terminal Control Deck** 🎉
+
+*Built with Go • Terminal-first • Privacy-focused • Extensible*
