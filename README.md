@@ -38,7 +38,7 @@ A private networking system designed for connecting and accessing Tash enabled d
 | Windows | ✅ |
 | Linux | ✅ |
 | macOS | ✅ |
-| Termux ARM64 | ❓ |
+| Termux | ✅ |
 | 32-bit Systems | ❌ |
 
 ## 🚧 Development
