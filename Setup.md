@@ -1,4 +1,4 @@
-# Tash — Complete Guide 🚀
+# Tash Complete Guide 🚀
 
 **Tash** is a terminal control deck for managing your infrastructure: Tailscale, Pi-hole, Docker, NAS, AI, and a secure mesh network (Tashnet) — all from one TUI.
 
