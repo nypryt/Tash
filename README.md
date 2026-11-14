@@ -10,6 +10,10 @@ Tash is a lightweight, cross platform terminal dashboard designed to bring syste
 
 • 🍎 macOS
 
+• 📱 Termux (ARM64 & X64 + *Unrooted + Rooted)
+
+*<small>Some features of Tailscale will be limited </small>
+
 ## ✨ Features
 
 🐳 **Docker Integration**  
@@ -34,12 +38,8 @@ A private networking system designed for connecting and accessing Tash enabled d
 | Windows | ✅ |
 | Linux | ✅ |
 | macOS | ✅ |
-| Termux ARM64 | ❓ |
+| Termux | ✅ |
 | 32-bit Systems | ❌ |
-
-## 🚧 Development
-
-Tash is currently under development. Features, compatibility and functionality may change as the project evolves.
 
 ## ⚠️ Development Disclaimer
 
