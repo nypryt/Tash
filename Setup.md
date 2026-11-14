@@ -399,8 +399,8 @@ tash version                                  # Version info
 
 ## 🔗 Resources
 
-- **GitHub:** https://github.com/tash/tash
-- **Issues:** https://github.com/tash/tash/issues
+- **GitHub:** https://github.com/nypryt/Tash
+- **Issues:** https://github.com/nypryt/Tash/issues
 - **In-app help:** Press `?` in dashboard
 - **Doctor:** `tash doctor` for full system check
 
@@ -409,3 +409,6 @@ tash version                                  # Version info
 **Tash — Terminal Control Deck** 🎉
 
 *Built with Go • Terminal-first • Privacy-focused • Extensible*
+<p align="center">
+  <sub>Copyright © 2026 Nypr. All rights reserved.</sub>
+</p>
