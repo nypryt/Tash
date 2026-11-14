@@ -12,7 +12,7 @@ Tash is a lightweight, cross platform terminal dashboard designed to bring syste
 
 • 📱 Termux (ARM64 & X64 + *Unrooted + Rooted)
 
-*<small> Some features of Tailscale will be limited </small>
+*<small>Some features of Tailscale will be limited </small>
 
 ## ✨ Features
 
