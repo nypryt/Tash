@@ -267,3 +267,65 @@ func (c *Client) PushConfig(ctx context.Context, cfg *config.Config, targetDevic
 	var resp ConfigSyncResponse
 	return c.do(ctx, http.MethodPost, "/v1/config/push", req, &resp, true)
 }
+
+// GetFullConfig fetches the full config from the main device (for clients).
+func (c *Client) GetFullConfig(ctx context.Context) (*config.Config, error) {
+	var resp struct {
+		Config     *config.Config `json:"config,omitempty"`
+		Version    int            `json:"version"`
+		Timestamp  int64          `json:"timestamp"`
+		DeviceID   string         `json:"device_id,omitempty"`
+		Message    string         `json:"message,omitempty"`
+	}
+	err := c.do(ctx, http.MethodGet, "/v1/config/get", nil, &resp, true)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Config == nil {
+		return nil, fmt.Errorf("no config returned")
+	}
+	return resp.Config, nil
+}
+
+// RenameDevice renames a device on the main device.
+func (c *Client) RenameDevice(ctx context.Context, deviceID, newName string) error {
+	req := struct {
+		DeviceID string `json:"device_id"`
+		NewName  string `json:"new_name"`
+	}{
+		DeviceID: deviceID,
+		NewName:  newName,
+	}
+	var resp map[string]string
+	return c.do(ctx, http.MethodPost, "/v1/device/rename", req, &resp, true)
+}
+
+// RemoveDevice removes a device from the main device.
+func (c *Client) RemoveDevice(ctx context.Context, deviceID string) error {
+	req := struct {
+		DeviceID string `json:"device_id"`
+	}{
+		DeviceID: deviceID,
+	}
+	var resp map[string]string
+	return c.do(ctx, http.MethodPost, "/v1/device/remove", req, &resp, true)
+}
+
+// RemoveMain demotes the main device to client.
+func (c *Client) RemoveMain(ctx context.Context) error {
+	var resp map[string]string
+	return c.do(ctx, http.MethodPost, "/v1/main/remove", nil, &resp, true)
+}
+
+// SetDevicePermissions sets permissions for a device.
+func (c *Client) SetDevicePermissions(ctx context.Context, deviceID, permission string) error {
+	req := struct {
+		DeviceID   string `json:"device_id"`
+		Permission string `json:"permission"`
+	}{
+		DeviceID:   deviceID,
+		Permission: permission,
+	}
+	var resp map[string]string
+	return c.do(ctx, http.MethodPost, "/v1/device/permissions", req, &resp, true)
+}

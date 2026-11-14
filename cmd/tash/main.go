@@ -984,33 +984,14 @@ func cmdUpdate(args []string) int {
 	if len(args) > 0 {
 		action = strings.ToLower(args[0])
 	}
-	fmt.Printf("Tash %s\n", version.Version)
+fmt.Printf("Tash %s\n", version.Version)
 	fmt.Println("Checking for updates...")
-	
-	// Check GitHub releases for latest version
+
+	// Check GitHub releases for latest version (try multiple repos)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/nypryt/Tash/releases/latest", nil)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "update: failed to create request:", err)
-		return 1
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "update: failed to check for updates:", err)
-		return 1
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "update: GitHub API returned %s\n", resp.Status)
-		return 1
-	}
-	
+
+	repos := []string{"nypryt/Tash", "tash/tash"}
 	var release struct {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
@@ -1020,20 +1001,69 @@ func cmdUpdate(args []string) int {
 			BrowserURL  string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		fmt.Fprintln(os.Stderr, "update: failed to parse response:", err)
+	var lastErr error
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	for _, repo := range repos {
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/"+repo+"/releases/latest", nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNotFound {
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("GitHub API returned %s for %s", resp.Status, repo)
+			continue
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Success
+		break
+	}
+
+	if lastErr != nil && release.TagName == "" {
+		fmt.Fprintln(os.Stderr, "update: failed to check for updates:", lastErr)
+		return 1
+	}
+
+	if release.TagName == "" {
+		fmt.Fprintln(os.Stderr, "update: no releases found in any repository")
 		return 1
 	}
 	
 	latest := strings.TrimPrefix(release.TagName, "v")
+	latest = strings.TrimPrefix(latest, "V.")
 	current := strings.TrimPrefix(version.Version, "v")
+	
+	// Parse versions for proper comparison
+	latestVer := parseVersion(latest)
+	currentVer := parseVersion(current)
 	
 	fmt.Printf("Current version: %s\n", version.Version)
 	fmt.Printf("Latest version:  v%s\n", latest)
 	
-	if latest == current {
+	if versionEqual(latestVer, currentVer) {
 		fmt.Println("You are already on the latest version.")
+		return 0
+	}
+	
+	if versionLess(latestVer, currentVer) {
+		fmt.Println("You are on a newer version than the latest release.")
 		return 0
 	}
 	
@@ -1050,19 +1080,32 @@ func cmdUpdate(args []string) int {
 	}
 	
 	// Find the appropriate asset for this platform
-	assetName := fmt.Sprintf("Tash-Setup-%s-%s-%s", release.TagName, platformName(), platformArch())
-	if runtime.GOOS == "windows" {
-		assetName += ".exe"
-	} else if runtime.GOOS == "linux" {
-		assetName += ".elf"
-	} else if runtime.GOOS == "darwin" {
-		assetName += ".dmg"
+	// Try multiple asset name formats
+	assetNames := []string{
+		fmt.Sprintf("Tash-Setup-%s-%s-%s", release.TagName, platformName(), platformArch()),
+		fmt.Sprintf("tashinstaller_%s", mapPlatformToInstallerName()),
+	}
+	
+	// Add extension
+	for i, name := range assetNames {
+		if runtime.GOOS == "windows" {
+			assetNames[i] = name + ".exe"
+		} else if runtime.GOOS == "linux" {
+			assetNames[i] = name + ".elf"
+		} else if runtime.GOOS == "darwin" {
+			assetNames[i] = name + ".dmg"
+		}
 	}
 	
 	var downloadURL string
 	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, assetName) {
-			downloadURL = asset.BrowserURL
+		for _, assetName := range assetNames {
+			if strings.Contains(asset.Name, assetName) {
+				downloadURL = asset.BrowserURL
+				break
+			}
+		}
+		if downloadURL != "" {
 			break
 		}
 	}
@@ -1073,23 +1116,33 @@ func cmdUpdate(args []string) int {
 		return 1
 	}
 	
-	fmt.Printf("Downloading %s...\n", assetName)
-	
-	req, err = http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	// Find which asset name matched
+	matchedAsset := assetNames[0]
+	for _, asset := range release.Assets {
+		for _, name := range assetNames {
+			if strings.Contains(asset.Name, name) {
+				matchedAsset = name
+				break
+			}
+		}
+	}
+	fmt.Printf("Downloading %s...\n", matchedAsset)
+
+	downloadReq, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "update: failed to create download request:", err)
 		return 1
 	}
-	
-	resp, err = client.Do(req)
+
+	downloadResp, err := client.Do(downloadReq)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "update: download failed:", err)
 		return 1
 	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "update: download returned %s\n", resp.Status)
+	defer downloadResp.Body.Close()
+
+	if downloadResp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "update: download returned %s\n", downloadResp.Status)
 		return 1
 	}
 	
@@ -1101,7 +1154,7 @@ func cmdUpdate(args []string) int {
 	}
 	tmpPath := tmpFile.Name()
 	
-	_, err = io.Copy(tmpFile, resp.Body)
+	_, err = io.Copy(tmpFile, downloadResp.Body)
 	tmpFile.Close()
 	if err != nil {
 		os.Remove(tmpPath)
@@ -1507,4 +1560,62 @@ func firstNonEmpty(v ...string) string {
 		}
 	}
 	return ""
+}
+
+// parseVersion parses a version string like "1.2.0" into a comparable tuple.
+func parseVersion(v string) [3]int {
+	v = strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(v, "V.")
+	parts := strings.Split(v, ".")
+	var major, minor, patch int
+	if len(parts) > 0 {
+		fmt.Sscanf(parts[0], "%d", &major)
+	}
+	if len(parts) > 1 {
+		fmt.Sscanf(parts[1], "%d", &minor)
+	}
+	if len(parts) > 2 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	return [3]int{major, minor, patch}
+}
+
+// mapPlatformToInstallerName returns the installer name format used in releases.
+func mapPlatformToInstallerName() string {
+	osName := platformName()
+	archName := platformArch()
+	switch osName {
+	case "windows":
+		if archName == "x64" {
+			return "win64"
+		}
+		return "winarm"
+	case "mac":
+		if archName == "intel" {
+			return "appleintel"
+		}
+		return "applesilicon"
+	case "linux":
+		if archName == "x64" {
+			return "linux64"
+		}
+		return "linuxarm"
+	}
+	return "unknown"
+}
+
+// versionEqual checks if two version tuples are equal.
+func versionEqual(a, b [3]int) bool {
+	return a[0] == b[0] && a[1] == b[1] && a[2] == b[2]
+}
+
+// versionLess checks if version a is less than version b.
+func versionLess(a, b [3]int) bool {
+	if a[0] != b[0] {
+		return a[0] < b[0]
+	}
+	if a[1] != b[1] {
+		return a[1] < b[1]
+	}
+	return a[2] < b[2]
 }

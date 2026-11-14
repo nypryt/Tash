@@ -236,6 +236,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/v1/transfer/complete", s.handleTransferComplete)
 	mux.HandleFunc("/v1/config/get", s.handleConfigGet)
 	mux.HandleFunc("/v1/config/push", s.handleConfigPush)
+	mux.HandleFunc("/v1/device/rename", s.handleDeviceRename)
+	mux.HandleFunc("/v1/device/remove", s.handleDeviceRemove)
+	mux.HandleFunc("/v1/main/remove", s.handleRemoveMain)
+	mux.HandleFunc("/v1/device/permissions", s.handleDevicePermissions)
 	return s.securityHeaders(mux)
 }
 
@@ -701,4 +705,178 @@ func (s *Server) validateToken(token string) bool {
 		return true
 	}
 	return false
+}
+
+type DeviceRenameRequest struct {
+	DeviceID string `json:"device_id"`
+	NewName  string `json:"new_name"`
+}
+
+func (s *Server) handleDeviceRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := s.store.Snapshot()
+	if cfg.Tashnet.Role != "main" {
+		writeError(w, http.StatusServiceUnavailable, "not a Tashnet main device")
+		return
+	}
+	token := r.Header.Get("Authorization")
+	if token == "" || !strings.HasPrefix(token, "Bearer ") {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !s.validateToken(token) {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	var req DeviceRenameRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.DeviceID == "" || req.NewName == "" {
+		writeError(w, http.StatusBadRequest, "device_id and new_name required")
+		return
+	}
+	if err := s.store.Update(func(c *config.Config) error {
+		if d, ok := c.Tashnet.Devices[req.DeviceID]; ok {
+			d.Name = req.NewName
+			c.Tashnet.Devices[req.DeviceID] = d
+			return nil
+		}
+		return fmt.Errorf("device not found")
+	}); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "renamed"})
+}
+
+type DeviceRemoveRequest struct {
+	DeviceID string `json:"device_id"`
+}
+
+func (s *Server) handleDeviceRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := s.store.Snapshot()
+	if cfg.Tashnet.Role != "main" {
+		writeError(w, http.StatusServiceUnavailable, "not a Tashnet main device")
+		return
+	}
+	token := r.Header.Get("Authorization")
+	if token == "" || !strings.HasPrefix(token, "Bearer ") {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !s.validateToken(token) {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	var req DeviceRemoveRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.DeviceID == "" {
+		writeError(w, http.StatusBadRequest, "device_id required")
+		return
+	}
+	if err := s.store.Update(func(c *config.Config) error {
+		if _, ok := c.Tashnet.Devices[req.DeviceID]; ok {
+			delete(c.Tashnet.Devices, req.DeviceID)
+			return nil
+		}
+		return fmt.Errorf("device not found")
+	}); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func (s *Server) handleRemoveMain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := s.store.Snapshot()
+	if cfg.Tashnet.Role != "main" {
+		writeError(w, http.StatusServiceUnavailable, "not a Tashnet main device")
+		return
+	}
+	token := r.Header.Get("Authorization")
+	if token == "" || !strings.HasPrefix(token, "Bearer ") {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !s.validateToken(token) {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	// Demote this device from main to client
+	if err := s.store.Update(func(c *config.Config) error {
+		c.Tashnet.Role = "client"
+		c.Tashnet.MainURL = ""
+		c.Tashnet.MainDeviceID = ""
+		c.Tashnet.MainDeviceName = ""
+		c.Tashnet.SecretVersion = 0
+		return nil
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "demoted to client"})
+}
+
+type DevicePermissionsRequest struct {
+	DeviceID   string `json:"device_id"`
+	Permission string `json:"permission"` // "full" | "read"
+}
+
+func (s *Server) handleDevicePermissions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg := s.store.Snapshot()
+	if cfg.Tashnet.Role != "main" {
+		writeError(w, http.StatusServiceUnavailable, "not a Tashnet main device")
+		return
+	}
+	token := r.Header.Get("Authorization")
+	if token == "" || !strings.HasPrefix(token, "Bearer ") {
+		writeError(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !s.validateToken(token) {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	var req DevicePermissionsRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.DeviceID == "" || (req.Permission != "full" && req.Permission != "read") {
+		writeError(w, http.StatusBadRequest, "device_id and permission (full|read) required")
+		return
+	}
+	if err := s.store.Update(func(c *config.Config) error {
+		if d, ok := c.Tashnet.Devices[req.DeviceID]; ok {
+			d.Permissions = req.Permission
+			c.Tashnet.Devices[req.DeviceID] = d
+			return nil
+		}
+		return fmt.Errorf("device not found")
+	}); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "permissions updated"})
 }

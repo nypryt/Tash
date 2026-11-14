@@ -994,6 +994,13 @@ func (m *Model) nasPassword() string {
 	return p[:2] + strings.Repeat("•", len(p)-4) + p[len(p)-2:]
 }
 
+func startupPasswordState(cfg config.Config) string {
+	if cfg.Tashnet.StartupPassword == "" {
+		return "disabled"
+	}
+	return "enabled"
+}
+
 type nasEntry struct {
 	Name   string
 	Path   string
@@ -1129,6 +1136,8 @@ func (m *Model) settingsRows() []settingRow {
 		{"Tailscale display", firstNonEmpty(m.cfg.Tailscale.DisplayMode, "all"), "all, active, or custom peer list"},
 		{"Tailscale ping interval", fmt.Sprintf("%ds", m.cfg.Tailscale.IntervalSec), "seconds between pings (1-60)"},
 		{"Tailscale max peers", fmt.Sprintf("%d", m.cfg.Tailscale.MaxPeers), "max peers to ping per interval (1-50)"},
+		{"Startup password", startupPasswordState(m.cfg), "password required on startup to unlock Tash"},
+		{"Config sync interval", fmt.Sprintf("%ds", m.cfg.Tashnet.ConfigSyncSec), "seconds between config sync from main (1-60)"},
 		{"Install directory", installDir, "where Tash is installed (requires reinstall)"},
 		{"Check for updates", updateState, "check GitHub for latest version"},
 		{"Refresh key", m.keybind("refresh"), "global refresh binding"},

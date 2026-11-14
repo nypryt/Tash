@@ -1,0 +1,41 @@
+*   [33md9d36a9[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Tash
+[31m|[m[32m\[m  
+[31m|[m * [33md19026f[m Remove development status from README
+[31m|[m * [33m1d7e1c0[m Update Termux support status in README
+[31m|[m * [33m1186054[m Update README.md
+[31m|[m * [33mdaae64c[m Update README.md
+[31m|[m * [33m3e627ec[m Update README.md
+[31m|[m * [33md5eae4a[m Add PolyForm Noncommercial License 1.0.0
+[31m|[m * [33m03ed189[m Create Setup.md
+[31m|[m * [33mf9a749b[m Initial commit
+* [33m682b6a3[m Update macOS and Termux ARM64 support status
+* [33ma0b9fcc[m Add platform support details to README
+* [33m42135cc[m Update Setup.md
+* [33m63ec477[m Update Setup.md
+* [33ma45dbae[m Update Setup.md
+* [33m9ae06fd[m Update README.md
+* [33md3b0568[m Update README.md
+* [33m33bd677[m Update Setup.md
+* [33m0182e42[m Update Setup.md
+* [33m789413d[m Fix formatting for Linux ARM64 installer instructions
+* [33m2def136[m Update Setup.md
+* [33mc34413b[m Fix formatting and consistency in Setup.md
+* [33m3074d95[m Update Setup.md
+* [33me34d8b9[m Create Setup.md for Tash installation and features
+* [33mcb4b1f4[m Specify macOS support for Intel architecture
+* [33mbddb93e[m Fix formatting for macOS support in README
+* [33m86919b7[m Update README.md
+* [33m66ecd86[m Update macOS support description in README
+* [33m1d2b6c3[m Update README.md
+* [33mfdbef94[m Update README.md
+* [33m5f2c7d2[m Update README.md
+* [33m3548d04[m Create LICENSE.md
+* [33m5d09daa[m Revise README with features and project information
+* [33m607e521[m Initial commit
+* [33m1adb26a[m Merge remote repository with Tash
+* [33mc7a9f68[m Initial release: Tash v1.1.2
+* [33m5126d7e[m[33m ([m[1;33mtag: [m[1;33mv1.0[m[33m)[m v1.0.0: AI tab with BYOK, tab position, more themes
+* [33m8984530[m Clean TEMP bundle from make and docker contexts
+* [33mae73b11[m Add tab order and visibility regression test
+* [33m880ca60[m Publish TEMP bundle with friendly names, portables, and line-ending policy
+* [33ma46b4ab[m Tash 0.20-dev: terminal control deck, Tashnet, installers, and portable builds

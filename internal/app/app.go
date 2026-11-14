@@ -180,6 +180,8 @@ type Model struct {
 
 	pluginMgr *plugin.Manager
 	widgets   []plugin.WidgetSpec
+	ctx       context.Context
+	tnetClient *tashnet.Client
 }
 
 // New builds the application, loading configuration when it exists.
@@ -189,6 +191,7 @@ func New(opts Options) (*Model, error) {
 		screen: ScreenDashboard, tab: TabOverview,
 		pings: map[string][]float64{}, lastPing: map[string]tailscale.PingResult{},
 		themeIdx: 0, peerIdx: 0,
+		ctx: context.Background(),
 	}
 	m.info = sysinfo.Collect()
 	m.registry = theme.NewRegistry(config.Dir())
@@ -422,6 +425,16 @@ func (m *Model) startServices() {
 	m.pluginMgr.SetAPI(api)
 	if err := m.pluginMgr.LoadAll(); err != nil {
 		m.setToast("plugins: "+err.Error(), true)
+	}
+
+	// Handle startup password if configured
+	if m.cfg.Tashnet.StartupPassword != "" && !m.quitting {
+		m.modal = inputModal("STARTUP PASSWORD", "Enter password to unlock Tash:", "", "Password is required to decrypt secrets and access Tashnet.", "startup-password", true)
+	}
+
+	// Start config sync loop for clients
+	if m.cfg.Tashnet.Role == "client" && m.cfg.Tashnet.MainURL != "" {
+		m.startConfigSyncLoop()
 	}
 }
 
@@ -1042,6 +1055,10 @@ func (m *Model) refreshCmd() tea.Cmd {
 			if err != nil {
 				return heartbeatMsg{err: err}
 			}
+			// Store client for config sync
+			if m.tnetClient == nil {
+				m.tnetClient = c
+			}
 			resp, err := c.Heartbeat(ctx)
 			return heartbeatMsg{resp: resp, err: err}
 		})
@@ -1141,25 +1158,10 @@ func (m *Model) checkUpdateCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		
-		req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/nypryt/Tash/releases/latest", nil)
-		if err != nil {
-			return toastMsg{text: "update check failed: " + err.Error(), err: true}
-		}
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-		
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			return toastMsg{text: "update check failed: " + err.Error(), err: true}
-		}
-		defer resp.Body.Close()
-		
-		if resp.StatusCode != http.StatusOK {
-			return toastMsg{text: fmt.Sprintf("update check failed: GitHub API returned %s", resp.Status), err: true}
-		}
-		
-		var release struct {
+
+		// Try repos in order
+		repos := []string{"nypryt/Tash", "tash/tash"}
+		var releaseData struct {
 			TagName string `json:"tag_name"`
 			HTMLURL string `json:"html_url"`
 			Body    string `json:"body"`
@@ -1168,19 +1170,63 @@ func (m *Model) checkUpdateCmd() tea.Cmd {
 				BrowserURL  string `json:"browser_download_url"`
 			} `json:"assets"`
 		}
-		
-		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-			return toastMsg{text: "update check failed: " + err.Error(), err: true}
+		var lastErr error
+
+		for _, repo := range repos {
+			req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/"+repo+"/releases/latest", nil)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+			client := &http.Client{Timeout: 15 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNotFound {
+				// Repo doesn't exist or no releases, try next
+				continue
+			}
+			if resp.StatusCode != http.StatusOK {
+				lastErr = fmt.Errorf("GitHub API returned %s for %s", resp.Status, repo)
+				continue
+			}
+
+			if err := json.NewDecoder(resp.Body).Decode(&releaseData); err != nil {
+				lastErr = err
+				continue
+			}
+
+			// Success
+			latest := strings.TrimPrefix(releaseData.TagName, "v")
+			latest = strings.TrimPrefix(latest, "V.")
+			current := strings.TrimPrefix(version.Version, "v")
+			
+			// Parse versions for proper comparison
+			latestVer := parseVersion(latest)
+			currentVer := parseVersion(current)
+			
+			if versionEqual(latestVer, currentVer) {
+				return toastMsg{text: "You are on the latest version (" + version.Version + ")", err: false}
+			}
+			
+			if versionLess(latestVer, currentVer) {
+				return toastMsg{text: "You are on a newer version than the latest release", err: false}
+			}
+			
+			return toastMsg{text: fmt.Sprintf("Update available: %s -> v%s (from %s)", version.Version, latest, repo), err: false}
 		}
-		
-		latest := strings.TrimPrefix(release.TagName, "v")
-		current := strings.TrimPrefix(version.Version, "v")
-		
-		if latest == current {
-			return toastMsg{text: "You are on the latest version (" + version.Version + ")", err: false}
+
+		// All repos failed
+		if lastErr != nil {
+			return toastMsg{text: "update check failed: " + lastErr.Error(), err: true}
 		}
-		
-		return toastMsg{text: fmt.Sprintf("Update available: %s -> v%s (check release page)", version.Version, latest), err: false}
+		return toastMsg{text: "update check failed: no releases found in any repository", err: true}
 	}
 }
 
@@ -1299,4 +1345,155 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// startConfigSyncLoop starts a background goroutine that syncs config from main device every 5 seconds.
+func (m *Model) startConfigSyncLoop() {
+	go func() {
+		ticker := time.NewTicker(time.Duration(m.cfg.Tashnet.ConfigSyncSec) * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if m.quitting {
+					return
+				}
+				if m.cfg.Tashnet.Role != "client" || m.cfg.Tashnet.MainURL == "" {
+					return
+				}
+				m.syncConfigFromMain()
+			case <-m.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// syncConfigFromMain fetches the full config from the main device and applies it.
+func (m *Model) syncConfigFromMain() {
+	if m.tnetClient == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	remoteCfg, err := m.tnetClient.GetFullConfig(ctx)
+	if err != nil {
+		m.setToast("config sync: "+err.Error(), true)
+		return
+	}
+
+	// Preserve local-only settings
+	localDeviceID := m.cfg.Tashnet.DeviceID
+	localDeviceName := m.cfg.Tashnet.DeviceName
+	localRole := m.cfg.Tashnet.Role
+	localMainURL := m.cfg.Tashnet.MainURL
+	localMainDeviceID := m.cfg.Tashnet.MainDeviceID
+	localMainDeviceName := m.cfg.Tashnet.MainDeviceName
+	localControlPort := m.cfg.Tashnet.ControlPort
+	localSecretVersion := m.cfg.Tashnet.SecretVersion
+	localConfigSyncSec := m.cfg.Tashnet.ConfigSyncSec
+	localStartupPassword := m.cfg.Tashnet.StartupPassword
+	localStartupSalt := m.cfg.Tashnet.StartupSalt
+	localSecretHash := m.cfg.Tashnet.SecretHash
+	localSecretSalt := m.cfg.Tashnet.SecretSalt
+
+	// Apply remote config
+	if err := m.store.Update(func(c *config.Config) error {
+		*c = *remoteCfg
+		// Restore local settings
+		c.Tashnet.DeviceID = localDeviceID
+		c.Tashnet.DeviceName = localDeviceName
+		c.Tashnet.Role = localRole
+		c.Tashnet.MainURL = localMainURL
+		c.Tashnet.MainDeviceID = localMainDeviceID
+		c.Tashnet.MainDeviceName = localMainDeviceName
+		c.Tashnet.ControlPort = localControlPort
+		c.Tashnet.SecretVersion = localSecretVersion
+		c.Tashnet.ConfigSyncSec = localConfigSyncSec
+		c.Tashnet.StartupPassword = localStartupPassword
+		c.Tashnet.StartupSalt = localStartupSalt
+		c.Tashnet.SecretHash = localSecretHash
+		c.Tashnet.SecretSalt = localSecretSalt
+		return nil
+	}); err != nil {
+		m.setToast("config sync apply: "+err.Error(), true)
+		return
+	}
+
+	m.cfg = m.store.Snapshot()
+	m.setToast("config synced from main", false)
+
+	// Restart services with new config
+	m.startServices()
+}
+
+// handleStartupPassword handles the startup password verification.
+func (m *Model) handleStartupPassword(password string) (tea.Model, tea.Cmd) {
+	if m.store == nil {
+		m.modal = modal{}
+		m.setToast("no store available", true)
+		return m, nil
+	}
+
+	// Verify password against hash
+	if !config.VerifyStartupPassword(password, m.cfg.Tashnet.StartupPassword) {
+		m.modal = modal{}
+		m.setToast("incorrect password", true)
+		return m, nil
+	}
+
+	// Password correct - decrypt secret if encrypted
+	if m.store.HasEncryptedSecret() {
+		secret, err := m.store.LoadSecretEncrypted(password)
+		if err != nil {
+			m.modal = modal{}
+			m.setToast("failed to decrypt secret: "+err.Error(), true)
+			return m, nil
+		}
+		// Set the decrypted secret for Tashnet
+		_ = secret // The store already set it in memory
+	}
+
+	m.modal = modal{}
+	m.setToast("unlocked", false)
+
+	// Initialize Tashnet now that we have the secret
+	m.startServices()
+	return m, nil
+}
+
+// parseVersion parses a version string like "1.2.0" into a comparable tuple.
+func parseVersion(v string) [3]int {
+	v = strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(v, "V.")
+	parts := strings.Split(v, ".")
+	var major, minor, patch int
+	if len(parts) > 0 {
+		fmt.Sscanf(parts[0], "%d", &major)
+	}
+	if len(parts) > 1 {
+		fmt.Sscanf(parts[1], "%d", &minor)
+	}
+	if len(parts) > 2 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	return [3]int{major, minor, patch}
+}
+
+// versionEqual checks if two version tuples are equal.
+func versionEqual(a, b [3]int) bool {
+	return a[0] == b[0] && a[1] == b[1] && a[2] == b[2]
+}
+
+// versionLess checks if version a is less than version b.
+func versionLess(a, b [3]int) bool {
+	if a[0] != b[0] {
+		return a[0] < b[0]
+	}
+	if a[1] != b[1] {
+		return a[1] < b[1]
+	}
+	return a[2] < b[2]
 }

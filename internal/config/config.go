@@ -2,11 +2,16 @@
 package config
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -123,15 +128,17 @@ func IsTabID(id string) bool {
 
 // Device is an approved Tashnet member. Tokens live only on the main device.
 type Device struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	OS         string    `json:"os"`
-	Arch       string    `json:"arch"`
-	IP         string    `json:"ip,omitempty"`
-	Token      string    `json:"token,omitempty"`
-	PollHash   string    `json:"poll_hash,omitempty"`
-	ApprovedAt time.Time `json:"approved_at"`
-	LastSeen   time.Time `json:"last_seen"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	OS           string    `json:"os"`
+	Arch         string    `json:"arch"`
+	IP           string    `json:"ip,omitempty"`
+	Token        string    `json:"token,omitempty"`
+	PollHash     string    `json:"poll_hash,omitempty"`
+	ApprovedAt   time.Time `json:"approved_at"`
+	LastSeen     time.Time `json:"last_seen"`
+	Permissions  string    `json:"permissions,omitempty"` // "full" | "read"
+	ConfigSynced bool      `json:"config_synced,omitempty"`
 }
 
 // Pending is a join request awaiting approval on the main device.
@@ -148,20 +155,25 @@ type Pending struct {
 
 // TashnetConfig describes this node's membership in the Tashnet.
 type TashnetConfig struct {
-	Name           string             `json:"name"`
-	Role           string             `json:"role"` // main | client
-	MainURL        string             `json:"main_url,omitempty"`
-	MainDeviceID   string             `json:"main_device_id,omitempty"`
-	MainDeviceName string             `json:"main_device_name,omitempty"`
-	DeviceID       string             `json:"device_id"`
-	DeviceName     string             `json:"device_name"`
-	ControlPort    int                `json:"control_port"`
-	SecretVersion  int                `json:"secret_version"`
-	Devices        map[string]Device  `json:"devices,omitempty"`
-	Pending        map[string]Pending `json:"pending,omitempty"`
-	Token          string             `json:"token,omitempty"`
-	TransferNonce  string             `json:"transfer_nonce,omitempty"`
-	TransferExpiry time.Time          `json:"transfer_expiry,omitempty"`
+	Name             string             `json:"name"`
+	Role             string             `json:"role"` // main | client
+	MainURL          string             `json:"main_url,omitempty"`
+	MainDeviceID     string             `json:"main_device_id,omitempty"`
+	MainDeviceName   string             `json:"main_device_name,omitempty"`
+	DeviceID         string             `json:"device_id"`
+	DeviceName       string             `json:"device_name"`
+	ControlPort      int                `json:"control_port"`
+	SecretVersion    int                `json:"secret_version"`
+	Devices          map[string]Device  `json:"devices,omitempty"`
+	Pending          map[string]Pending `json:"pending,omitempty"`
+	Token            string             `json:"token,omitempty"`
+	TransferNonce    string             `json:"transfer_nonce,omitempty"`
+	TransferExpiry   time.Time          `json:"transfer_expiry,omitempty"`
+	ConfigSyncSec    int                `json:"config_sync_sec,omitempty"`    // client: sync interval from main (default 5)
+	StartupPassword  string             `json:"startup_password,omitempty"`   // bcrypt hash of startup password
+	StartupSalt      string             `json:"startup_salt,omitempty"`       // salt for startup password
+	SecretHash       string             `json:"secret_hash,omitempty"`        // Argon2id hash of secret key
+	SecretSalt       string             `json:"secret_salt,omitempty"`        // salt for secret key
 }
 
 // Config is the persisted Tash configuration.
@@ -195,14 +207,15 @@ func Default() Config {
 			TabOrder: DefaultTabOrder(), TabNumbers: DefaultTabNumbers(), Keybinds: DefaultKeybinds(),
 		},
 		Tashnet: TashnetConfig{
-			Name:          "Tashnet",
-			Role:          "main",
-			DeviceID:      "dev_" + randomHex(8),
-			DeviceName:    host,
-			ControlPort:   8787,
-			SecretVersion: 1,
-			Devices:       map[string]Device{},
-			Pending:       map[string]Pending{},
+			Name:           "Tashnet",
+			Role:           "main",
+			DeviceID:       "dev_" + randomHex(8),
+			DeviceName:     host,
+			ControlPort:    8787,
+			SecretVersion:  1,
+			Devices:        map[string]Device{},
+			Pending:        map[string]Pending{},
+			ConfigSyncSec:  5,
 		},
 		NAS: NASConfig{
 			AutoStart: false,
@@ -267,11 +280,21 @@ func (c *Config) Normalize() {
 	if c.Tashnet.SecretVersion < 1 {
 		c.Tashnet.SecretVersion = 1
 	}
+	if c.Tashnet.ConfigSyncSec < 1 {
+		c.Tashnet.ConfigSyncSec = 5
+	}
 	if c.Tashnet.Devices == nil {
 		c.Tashnet.Devices = map[string]Device{}
 	}
 	if c.Tashnet.Pending == nil {
 		c.Tashnet.Pending = map[string]Pending{}
+	}
+	// Default permissions for existing devices
+	for id, d := range c.Tashnet.Devices {
+		if d.Permissions == "" {
+			d.Permissions = "full"
+			c.Tashnet.Devices[id] = d
+		}
 	}
 	if c.NAS.Root == "" {
 		c.NAS.Root = def.NAS.Root
@@ -534,6 +557,100 @@ func (s *Store) SetSecret(secret string) error {
 	return nil
 }
 
+// SetSecretEncrypted stores the secret encrypted with a key derived from the password.
+func (s *Store) SetSecretEncrypted(secret, password string) error {
+	// Derive encryption key from password using Argon2id
+	salt, err := GenerateSecretSalt()
+	if err != nil {
+		return err
+	}
+	key := argon2.IDKey([]byte(password), []byte(salt), 4, 64*1024, 4, 32)
+
+	// Encrypt secret with AES-GCM
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(secret), nil)
+
+	// Store salt + nonce + ciphertext
+	data := make([]byte, len(salt)/2 + len(nonce) + len(ciphertext))
+	saltBytes, _ := hex.DecodeString(salt)
+	copy(data, saltBytes)
+	copy(data[len(saltBytes):], nonce)
+	copy(data[len(saltBytes)+len(nonce):], ciphertext)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(s.dir, "secret.key.enc")
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write encrypted secret: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("install encrypted secret: %w", err)
+	}
+	s.secret = secret // Keep in memory
+	return nil
+}
+
+// LoadSecretEncrypted decrypts and loads the secret from disk.
+func (s *Store) LoadSecretEncrypted(password string) (string, error) {
+	path := filepath.Join(s.dir, "secret.key.enc")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract salt (first 32 bytes)
+	saltBytes := data[:32]
+
+	// Derive key
+	key := argon2.IDKey([]byte(password), saltBytes, 4, 64*1024, 4, 32)
+
+	// Extract nonce and ciphertext
+	nonceSize := 12 // GCM standard nonce size
+	nonce := data[32 : 32+nonceSize]
+	ciphertext := data[32+nonceSize:]
+
+	// Decrypt
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", fmt.Errorf("decryption failed: %w", err)
+	}
+
+	secret := strings.TrimSpace(string(plaintext))
+	s.mu.Lock()
+	s.secret = secret
+	s.mu.Unlock()
+	return secret, nil
+}
+
+// HasEncryptedSecret checks if an encrypted secret exists.
+func (s *Store) HasEncryptedSecret() bool {
+	_, err := os.Stat(filepath.Join(s.dir, "secret.key.enc"))
+	return !os.IsNotExist(err)
+}
+
 // ClearSecret removes the network secret from disk. Used when a main device is
 // demoted after a main-role transfer.
 func (s *Store) ClearSecret() error {
@@ -649,4 +766,49 @@ func DefaultDockerHost() string {
 	default:
 		return "unix:///var/run/docker.sock"
 	}
+}
+
+// HashSecretKey creates an Argon2id hash of the secret key for secure storage.
+func HashSecretKey(secret string) (hash, salt string, err error) {
+	saltBytes := make([]byte, 16)
+	if _, err := rand.Read(saltBytes); err != nil {
+		return "", "", err
+	}
+	// Argon2id with high memory and time cost
+	hashBytes := argon2.IDKey([]byte(secret), saltBytes, 4, 64*1024, 4, 32)
+	return hex.EncodeToString(hashBytes), hex.EncodeToString(saltBytes), nil
+}
+
+// VerifySecretKey verifies a secret key against its Argon2id hash.
+func VerifySecretKey(secret, hash, salt string) bool {
+	saltBytes, err := hex.DecodeString(salt)
+	if err != nil {
+		return false
+	}
+	hashBytes, err := hex.DecodeString(hash)
+	if err != nil {
+		return false
+	}
+	computedHash := argon2.IDKey([]byte(secret), saltBytes, 4, 64*1024, 4, 32)
+	return subtle.ConstantTimeCompare(hashBytes, computedHash) == 1
+}
+
+// HashStartupPassword creates a bcrypt hash of the startup password.
+func HashStartupPassword(password string) (hash string, err error) {
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(hashBytes), err
+}
+
+// VerifyStartupPassword verifies a startup password against its bcrypt hash.
+func VerifyStartupPassword(password, hash string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+// GenerateSecretSalt generates a random salt for secret key derivation.
+func GenerateSecretSalt() (string, error) {
+	saltBytes := make([]byte, 32)
+	if _, err := rand.Read(saltBytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(saltBytes), nil
 }

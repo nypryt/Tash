@@ -780,6 +780,90 @@ func (m *Model) runModalAction(action, value string) (tea.Model, tea.Cmd) {
 		m.setToast(fmt.Sprintf("Tailscale max peers: %d", n), false)
 		return m, nil
 
+	case "set-startup-password":
+		pwd := strings.TrimSpace(value)
+		if m.store == nil {
+			m.modal = modal{}
+			m.setToast("no store available", true)
+			return m, nil
+		}
+		if pwd == "" {
+			// Disable startup password
+			if err := m.store.Update(func(c *config.Config) error {
+				c.Tashnet.StartupPassword = ""
+				c.Tashnet.StartupSalt = ""
+				return nil
+			}); err != nil {
+				m.modal = modal{}
+				m.setToast("startup password: "+err.Error(), true)
+				return m, nil
+			}
+			m.cfg = m.store.Snapshot()
+			m.modal = modal{}
+			m.setToast("startup password disabled", false)
+			return m, nil
+		}
+		// Set new startup password
+		hash, err := config.HashStartupPassword(pwd)
+		if err != nil {
+			m.modal = modal{}
+			m.setToast("startup password: "+err.Error(), true)
+			return m, nil
+		}
+		salt, err := config.GenerateSecretSalt()
+		if err != nil {
+			m.modal = modal{}
+			m.setToast("startup password: "+err.Error(), true)
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			c.Tashnet.StartupPassword = hash
+			c.Tashnet.StartupSalt = salt
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("startup password: "+err.Error(), true)
+			return m, nil
+		}
+		// Also encrypt the secret key if it exists
+		if m.store.Secret() != "" && !m.store.HasEncryptedSecret() {
+			if err := m.store.SetSecretEncrypted(m.store.Secret(), pwd); err != nil {
+				m.modal = modal{}
+				m.setToast("encrypt secret: "+err.Error(), true)
+				return m, nil
+			}
+		}
+		m.cfg = m.store.Snapshot()
+		m.modal = modal{}
+		m.setToast("startup password set and secret encrypted", false)
+		return m, nil
+
+	case "set-config-sync":
+		sec := strings.TrimSpace(value)
+		n := 5
+		fmt.Sscanf(sec, "%d", &n)
+		if n < 1 || n > 60 {
+			m.modal = modal{}
+			m.setToast("sync interval must be 1-60 seconds", true)
+			return m, nil
+		}
+		if m.store == nil {
+			m.modal = modal{}
+			return m, nil
+		}
+		if err := m.store.Update(func(c *config.Config) error {
+			c.Tashnet.ConfigSyncSec = n
+			return nil
+		}); err != nil {
+			m.modal = modal{}
+			m.setToast("config sync: "+err.Error(), true)
+			return m, nil
+		}
+		m.cfg = m.store.Snapshot()
+		m.modal = modal{}
+		m.setToast(fmt.Sprintf("config sync interval: %ds", n), false)
+		return m, nil
+
 	case "set-ai-key":
 		m.updateAI(func(c *config.AIConfig) {
 			c.APIKey = strings.TrimSpace(value)
@@ -1724,29 +1808,33 @@ func (m *Model) activateSetting() (tea.Model, tea.Cmd) {
 	case 14:
 		m.modal = inputModal("TAILSCALE MAX PEERS", "Max peers to ping per interval (1-50):", fmt.Sprintf("%d", m.cfg.Tailscale.MaxPeers), "Limits concurrent pings to reduce load.", "set-ts-maxpeers", false)
 	case 15:
-		m.modal = infoModal("INSTALL DIRECTORY", "Current install location:\n  "+config.Dir()+"\n\nTo change the install directory, re-run the installer with --prefix flag:\n  tash installer --prefix /new/path\n\nOr download the portable build from the latest release.")
+		m.modal = inputModal("STARTUP PASSWORD", "Set/change startup password (blank = disable):", "", "Required on startup to unlock Tash. Uses bcrypt with salt.", "set-startup-password", true)
 	case 16:
-		return m, m.checkUpdateCmd()
+		m.modal = inputModal("CONFIG SYNC INTERVAL", "Seconds between config sync from main (1-60):", fmt.Sprintf("%d", m.cfg.Tashnet.ConfigSyncSec), "How often clients pull config from main device.", "set-config-sync", false)
 	case 17:
-		m.modal = inputModal("REFRESH KEY", "Global refresh key:", m.keybind("refresh"), "Examples: r, R, ctrl+r", "set-key-refresh", false)
+		m.modal = infoModal("INSTALL DIRECTORY", "Current install location:\n  "+config.Dir()+"\n\nTo change the install directory, re-run the installer with --prefix flag:\n  tash installer --prefix /new/path\n\nOr download the portable build from the latest release.")
 	case 18:
-		m.modal = inputModal("HELP KEY", "About/help key:", m.keybind("help"), "Examples: ?, h, ctrl+h", "set-key-help", false)
+		return m, m.checkUpdateCmd()
 	case 19:
-		m.modal = inputModal("QUIT KEY", "Quit key:", m.keybind("quit"), "Examples: q, Q, ctrl+q. ctrl+c always quits.", "set-key-quit", false)
+		m.modal = inputModal("REFRESH KEY", "Global refresh key:", m.keybind("refresh"), "Examples: r, R, ctrl+r", "set-key-refresh", false)
 	case 20:
+		m.modal = inputModal("HELP KEY", "About/help key:", m.keybind("help"), "Examples: ?, h, ctrl+h", "set-key-help", false)
+	case 21:
+		m.modal = inputModal("QUIT KEY", "Quit key:", m.keybind("quit"), "Examples: q, Q, ctrl+q. ctrl+c always quits.", "set-key-quit", false)
+	case 22:
 		m.settings = settingsTabs
 		m.tabCfgIdx = 0
-	case 21:
+	case 23:
 		m.updateUI(func(c *config.UIConfig) {
 			c.Splash = !c.Splash
 		})
-	case 22:
+	case 24:
 		m.updateUI(func(c *config.UIConfig) {
 			c.Clock24 = !c.Clock24
 		})
-	case 23:
+	case 25:
 		m.cycleDeckLayout()
-	case 24:
+	case 26:
 		m.updateUI(func(c *config.UIConfig) {
 			if c.TabPosition == "top" {
 				c.TabPosition = "bottom"
@@ -1754,9 +1842,9 @@ func (m *Model) activateSetting() (tea.Model, tea.Cmd) {
 				c.TabPosition = "top"
 			}
 		})
-	case 25:
+	case 27:
 		m.modal = infoModal("ABOUT TASH // OPERATOR MANUAL", m.aboutBody())
-	case 26:
+	case 28:
 		m.modal = confirmModal("RESET TO DEFAULTS", "This will reset ALL settings to factory defaults:\n  • UI (theme, splash, clock, deck layout, tab position)\n  • Keybindings (refresh, help, quit)\n  • AI integration (enabled, provider, model, API key, command, workdir, permission)\n  • NAS (password, root, auto-start)\n  • Tabs (visibility, order, numbers)\n\nTashnet, Pi-hole, Docker, and Tailscale settings are NOT reset.\n\nType RESET to confirm:", "RESET", "reset-to-defaults")
 	}
 	return m, nil
